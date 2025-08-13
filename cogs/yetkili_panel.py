@@ -95,7 +95,7 @@ class YetkiliIslemleriView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -235,7 +235,7 @@ class YetkiliPanelView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Bump log view'ını oluştur
         view = BumpLogView(bump_tracker, interaction.user)
@@ -331,7 +331,7 @@ class YetkiliPanelView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self, interaction.user)
         
@@ -367,7 +367,8 @@ class YetkiliPanelView(discord.ui.View):
                 yetkili_sayisi += len(rol.members)
         
         # Sunucu yaşını hesapla
-        created_days = (discord.utils.utcnow() - guild.created_at).days
+        tz = pytz.timezone('Europe/Istanbul')
+        created_days = (datetime.datetime.now(tz) - guild.created_at.astimezone(tz)).days
         
         # Embed oluştur
         embed = discord.Embed(
@@ -491,7 +492,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # Thumbnail ve footer
         embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Geri dönüş butonu içeren view
         view = YetkiliPanelView(self, interaction.user)
@@ -586,7 +587,7 @@ class BasvurularView(discord.ui.View):
             
             # Thumbnail ve footer
             embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
             
             # Mevcut view'a ek bir buton ekleyemiyoruz, yeni bir view oluşturalım
             view = BasvurularListeView(self.cog, self.user)
@@ -614,7 +615,7 @@ class BasvurularView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -781,7 +782,7 @@ class BasvuruAraModal(discord.ui.Modal, title="Başvuru Arama"):
             embed.set_thumbnail(url=member.display_avatar.url)
         
         # Footer
-        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Geri dönüş butonu
         view = BasvuruDetayView(self.cog, self.user)
@@ -827,7 +828,7 @@ class BasvuruDetayView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -881,7 +882,7 @@ class YetkiliDuyuruView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -992,7 +993,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
             title=f"📢 {self.baslik}",
             description=self.metin,
             color=0x3498db,
-            timestamp=discord.utils.utcnow()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         embed.set_author(
@@ -1039,7 +1040,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
                     f"**Gönderim Durumu:** {basarili} başarılı, {basarisiz} başarısız"
                 ),
                 color=0x3498db,
-                timestamp=discord.utils.utcnow()
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             )
             
             log_embed.add_field(
@@ -1072,7 +1073,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -1293,7 +1294,7 @@ class OtomatikMesajlarView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
@@ -1510,7 +1511,7 @@ class KanalSecimMenu(discord.ui.Select):
                     title="⏱️ Otomatik Mesaj Eklendi",
                     description=f"**{interaction.user.name}** tarafından yeni bir otomatik mesaj eklendi.",
                     color=0x3498db,
-                    timestamp=discord.utils.utcnow()
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 )
                 
                 log_embed.add_field(
@@ -1607,7 +1608,7 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                             title="🗑️ Otomatik Mesaj Silindi",
                             description=f"**{interaction.user.name}** tarafından bir otomatik mesaj silindi.",
                             color=discord.Color.red(),
-                            timestamp=discord.utils.utcnow()
+                            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                         )
                         
                         log_embed.add_field(
@@ -1772,7 +1773,7 @@ class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle
                             title="✏️ Otomatik Mesaj Güncellendi",
                             description=f"**{interaction.user.name}** tarafından bir otomatik mesaj güncellendi.",
                             color=0x3498db,
-                            timestamp=discord.utils.utcnow()
+                            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                         )
                         
                         log_embed.add_field(
@@ -2049,7 +2050,7 @@ class MesajSilOnayView(discord.ui.View):
                     title="🗑️ Otomatik Mesaj Silindi",
                     description=f"**{interaction.user.name}** tarafından bir otomatik mesaj silindi.",
                     color=discord.Color.red(),
-                    timestamp=discord.utils.utcnow()
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 )
                 
                 log_embed.add_field(
@@ -2115,7 +2116,7 @@ class KullaniciNotlariView(discord.ui.View):
             title="📝 Kullanıcı Notları Paneli",
             description="Sunucudaki kullanıcı notlarını yönetebilirsiniz.",
             color=0x3498db,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         # İstatistikler
@@ -2218,7 +2219,7 @@ class KullaniciNotlariView(discord.ui.View):
                 "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
             ),
             color=0x00ff00,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         embed.set_footer(text=f"Kullanıcı: {self.user.name}")
         await interaction.response.edit_message(embed=embed, view=main_view)
@@ -2261,7 +2262,7 @@ class KullaniciNotlariView(discord.ui.View):
         embed = discord.Embed(
             title="📊 Detaylı Not İstatistikleri",
             color=0x2ecc71,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         embed.add_field(
@@ -2316,7 +2317,7 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
             title=f"🔍 Arama Sonuçları: '{self.search_term.value}'",
             description=f"**Bulunan Not Sayısı:** {len(notes)}",
             color=0x3498db,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         for note in notes[:5]:  # İlk 5 sonucu göster
@@ -2397,7 +2398,7 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
             title=f"📝 {display_name} - Kullanıcı Notları",
             description=f"**Kullanıcı ID:** `{user_id}`\n**Toplam Not:** {len(notes)}",
             color=0x3498db,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         for note in notes[:5]:  # İlk 5 notu göster
@@ -2719,7 +2720,7 @@ class YetkiliPanel(commands.Cog):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self, interaction.user)
         
@@ -2755,7 +2756,7 @@ class YetkiliPanel(commands.Cog):
                 yetkili_sayisi += len(rol.members)
         
         # Sunucu yaşını hesapla
-        created_days = (discord.utils.utcnow() - guild.created_at).days
+        created_days = (datetime.datetime.now(pytz.timezone('Europe/Istanbul')) - guild.created_at.astimezone(pytz.timezone('Europe/Istanbul'))).days
         
         # Embed oluştur
         embed = discord.Embed(
@@ -2879,7 +2880,7 @@ class YetkiliPanel(commands.Cog):
         
         # Thumbnail ve footer
         embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Geri dönüş butonu içeren view
         view = YetkiliPanelView(self, interaction.user)
@@ -2960,7 +2961,7 @@ class YetkiliPanel(commands.Cog):
                 title="✅ Yetki Yükseltme Başarılı",
                 description=f"{hedef_uye.mention} kullanıcısının yetkisi başarıyla yükseltildi.",
                 color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             )
             
             embed.add_field(
@@ -2990,7 +2991,7 @@ class YetkiliPanel(commands.Cog):
                     title="🔼 Yetki Yükseltme",
                     description=f"{hedef_uye.mention} kullanıcısının yetkisi yükseltildi.",
                     color=discord.Color.gold(),
-                    timestamp=discord.utils.utcnow()
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 )
                 
                 log_embed.add_field(
@@ -3013,7 +3014,7 @@ class YetkiliPanel(commands.Cog):
                 )
                 
                 log_embed.set_thumbnail(url=hedef_uye.display_avatar.url)
-                log_embed.set_footer(text=f"İşlem Zamanı: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+                log_embed.set_footer(text=f"İşlem Zamanı: {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
                 
                 await log_kanali.send(embed=log_embed)
             
@@ -3091,7 +3092,7 @@ class YetkiliPanel(commands.Cog):
                 title="✅ Yetki Düşürme Başarılı",
                 description=f"{hedef_uye.mention} kullanıcısının yetkisi başarıyla düşürüldü.",
                 color=discord.Color.red(),
-                timestamp=discord.utils.utcnow()
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             )
             
             embed.add_field(
@@ -3121,7 +3122,7 @@ class YetkiliPanel(commands.Cog):
                     title="🔽 Yetki Düşürme",
                     description=f"{hedef_uye.mention} kullanıcısının yetkisi düşürüldü.",
                     color=discord.Color.orange(),
-                    timestamp=discord.utils.utcnow()
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 )
                 
                 log_embed.add_field(
@@ -3144,7 +3145,7 @@ class YetkiliPanel(commands.Cog):
                 )
                 
                 log_embed.set_thumbnail(url=hedef_uye.display_avatar.url)
-                log_embed.set_footer(text=f"İşlem Zamanı: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+                log_embed.set_footer(text=f"İşlem Zamanı: {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
                 
                 await log_kanali.send(embed=log_embed)
             
@@ -3220,7 +3221,7 @@ class DatabaseCleanupModal(discord.ui.Modal, title="Veritabanı Temizlik"):
                 title="🧹 Veritabanı Temizlik Raporu",
                 description="Eski bump kayıtları başarıyla temizlendi.",
                 color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             )
             
             embed.add_field(
@@ -3276,7 +3277,7 @@ class SistemDurumuView(discord.ui.View):
         self.cog = cog
         self.user = user
         self.message = None
-        self.bot_start_time = getattr(cog.bot, 'start_time', datetime.datetime.now())
+        self.bot_start_time = getattr(cog.bot, 'start_time', datetime.datetime.now(pytz.timezone('Europe/Istanbul')))
     
     async def on_timeout(self):
         """Timeout olduğunda butonları devre dışı bırakma"""
@@ -3309,7 +3310,7 @@ class SistemDurumuView(discord.ui.View):
             title="💻 Sistem Durumu",
             description="Bot ve sunucu sistem durumu bilgileri",
             color=0x00ff00,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         # === SİSTEM KAYNAKLARI ===
@@ -3339,7 +3340,7 @@ class SistemDurumuView(discord.ui.View):
         
         # === BOT DURUMU ===
         # Bot uptime
-        uptime_delta = datetime.datetime.now() - self.bot_start_time
+        uptime_delta = datetime.datetime.now(pytz.timezone('Europe/Istanbul')) - self.bot_start_time
         uptime_str = str(uptime_delta).split('.')[0]  # Milisaniyeleri çıkar
         
         # Bot process bilgileri
@@ -3531,7 +3532,7 @@ class SistemDurumuView(discord.ui.View):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)

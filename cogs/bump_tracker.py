@@ -8,6 +8,7 @@ import asyncio
 from typing import List, Dict, Optional
 import json
 from database import get_db
+import pytz
 
 class BumpLogView(discord.ui.View):
     def __init__(self, cog, user):
@@ -66,6 +67,7 @@ class BumpTracker(commands.Cog):
             1029089727061692522,  # YÖNETİM KURULU BAŞKANI
             1029089723110674463   # KURUCU
         ]
+        self.turkey_tz = pytz.timezone('Europe/Istanbul')
     
     async def cog_load(self):
         self.db = await get_db()
@@ -169,7 +171,7 @@ class BumpTracker(commands.Cog):
             )
             
             embed.set_thumbnail(url=user.display_avatar.url)
-            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
             
             await interaction.followup.send(embed=embed)
             
@@ -197,7 +199,7 @@ class BumpTracker(commands.Cog):
         )
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
         
         view = BumpLogView(self, interaction.user)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -300,7 +302,7 @@ class BumpTracker(commands.Cog):
         
         embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
         embed.set_footer(
-            text=f"{interaction.guild.name} • {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            text=f"{interaction.guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}",
             icon_url=interaction.guild.icon.url if interaction.guild.icon else None
         )
         

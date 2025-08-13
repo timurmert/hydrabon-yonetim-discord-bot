@@ -1,5 +1,6 @@
 import discord
 import datetime
+import pytz
 from discord.ext import commands
 from typing import Optional, Union
 import asyncio
@@ -37,6 +38,7 @@ class ServerLogs(commands.Cog):
         
         # YK rol ID'si
         self.yk_role_id = 1029089731314720798  # YÖNETİM KURULU ÜYELERİ
+        self.turkey_tz = pytz.timezone('Europe/Istanbul')
 
     async def get_log_channel(self, guild):
         """Sunucudaki log kanalını bulur ve döndürür"""
@@ -142,7 +144,7 @@ class ServerLogs(commands.Cog):
                         f"**Yazar:** {message.author.mention} ({message.author.name})\n"
                         f"**Mesaj ID:** {message.id}",
             color=discord.Color.red(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Mesaj içeriği
@@ -194,7 +196,7 @@ class ServerLogs(commands.Cog):
                         f"**Mesaj ID:** {before.id}\n"
                         f"**Bağlantı:** [Mesaja Git]({after.jump_url})",
             color=discord.Color.gold(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Eski ve yeni içerik
@@ -228,7 +230,7 @@ class ServerLogs(commands.Cog):
         embed = discord.Embed(
             description=f"**Kullanıcı:** {member.mention} ({member.name})",
             color=discord.Color.blue(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Kullanıcı avatarı
@@ -299,7 +301,7 @@ class ServerLogs(commands.Cog):
         """Sunucuya katılan üyeleri loglar"""
         # Hesap yaşını hesapla
         created_at = member.created_at
-        created_ago = (datetime.datetime.now(datetime.timezone.utc) - created_at).days
+        created_ago = (datetime.datetime.now(self.turkey_tz) - created_at.astimezone(self.turkey_tz)).days
         
         # Embed oluştur
         embed = discord.Embed(
@@ -308,7 +310,7 @@ class ServerLogs(commands.Cog):
                         f"**ID:** {member.id}\n"
                         f"**Hesap Oluşturulma:** {discord.utils.format_dt(created_at, style='R')} ({created_ago} gün önce)",
             color=discord.Color.green(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Kullanıcı avatarı
@@ -322,7 +324,7 @@ class ServerLogs(commands.Cog):
         # Katılma bilgisini al
         joined_at = member.joined_at
         if joined_at:
-            joined_ago = (datetime.datetime.now(datetime.timezone.utc) - joined_at).days
+            joined_ago = (datetime.datetime.now(self.turkey_tz) - joined_at.astimezone(self.turkey_tz)).days
             joined_text = f"{discord.utils.format_dt(joined_at, style='R')} ({joined_ago} gün önce)"
         else:
             joined_text = "Bilinmiyor"
@@ -335,7 +337,7 @@ class ServerLogs(commands.Cog):
                         f"**Katılma Tarihi:** {joined_text}\n"
                         f"**Rol Sayısı:** {len(member.roles) - 1}",  # @everyone rolünü çıkart
             color=discord.Color.red(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Kullanıcının rollerini listele (eğer varsa)
@@ -362,7 +364,7 @@ class ServerLogs(commands.Cog):
                 title="Kullanıcı Adı Değiştirildi",
                 description=f"**Kullanıcı:** {after.mention} ({after.name})",
                 color=discord.Color.blue(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             embed.add_field(name="Eski İsim", value=before.display_name, inline=True)
@@ -390,7 +392,7 @@ class ServerLogs(commands.Cog):
                     description=f"**Kullanıcı:** {after.mention} ({after.name})\n"
                                 f"{executor_info}",
                     color=discord.Color.green(),
-                    timestamp=datetime.datetime.now()
+                    timestamp=datetime.datetime.now(self.turkey_tz)
                 )
                 
                 roles_text = ", ".join([role.mention for role in added_roles])
@@ -412,7 +414,7 @@ class ServerLogs(commands.Cog):
                     description=f"**Kullanıcı:** {after.mention} ({after.name})\n"
                                 f"{executor_info}",
                     color=discord.Color.red(),
-                    timestamp=datetime.datetime.now()
+                    timestamp=datetime.datetime.now(self.turkey_tz)
                 )
                 
                 roles_text = ", ".join([role.mention for role in removed_roles])
@@ -437,7 +439,7 @@ class ServerLogs(commands.Cog):
                         f"**Kanal Türü:** {str(channel.type).replace('_', ' ').title()}\n"
                         f"{executor_info}",
             color=discord.Color.green(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Kategori bilgisi
@@ -460,7 +462,7 @@ class ServerLogs(commands.Cog):
                         f"**Kanal Türü:** {str(channel.type).replace('_', ' ').title()}\n"
                         f"{executor_info}",
             color=discord.Color.red(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Kategori bilgisi
@@ -517,7 +519,7 @@ class ServerLogs(commands.Cog):
                             f"**Kanal ID:** {after.id}\n"
                             f"{executor_info}",
                 color=discord.Color.gold(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             # Değişiklikleri ekle
@@ -538,7 +540,7 @@ class ServerLogs(commands.Cog):
                         f"**Rol ID:** {role.id}\n"
                         f"{executor_info}",
             color=role.color,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Rol özellikleri
@@ -580,7 +582,7 @@ class ServerLogs(commands.Cog):
                         f"**Pozisyon:** {role.position}\n"
                         f"{executor_info}",
             color=discord.Color.red(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         await self.send_log_embed(role.guild, embed)
@@ -633,7 +635,7 @@ class ServerLogs(commands.Cog):
                             f"**Rol ID:** {after.id}\n"
                             f"{executor_info}",
                 color=after.color,
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             # Genel değişiklikleri ekle
@@ -654,7 +656,7 @@ class ServerLogs(commands.Cog):
     async def handle_role_position_change(self, before, after):
         """Rol pozisyon değişikliklerini toplu olarak işler"""
         guild_id = after.guild.id
-        current_time = datetime.datetime.now()
+        current_time = datetime.datetime.now(self.turkey_tz)
         
         # Guild için dictionary oluştur
         if guild_id not in self.role_position_updates:
@@ -712,7 +714,7 @@ class ServerLogs(commands.Cog):
                             f"**Rol ID:** {role.id}\n"
                             f"{executor_info}",
                 color=role.color,
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             embed.add_field(name="Pozisyon Değişikliği", value=f"**Pozisyon:** {old_pos} → {new_pos}", inline=False)
         else:
@@ -722,7 +724,7 @@ class ServerLogs(commands.Cog):
                 description=f"**{len(changes)}** rolün pozisyonu değiştirildi:\n"
                             f"{executor_info}",
                 color=discord.Color.blue(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             change_text = []
@@ -922,7 +924,7 @@ class ServerLogs(commands.Cog):
                 description=f"**Yetkili Üye:** {member.mention} ({member.name})\n"
                            f"**Başka Sunucu Davet Linki Tespit Edildi!**",
                 color=discord.Color.red(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             embed.add_field(
@@ -971,7 +973,7 @@ class ServerLogs(commands.Cog):
                 description=f"**Yetkili Üye:** {member.mention} ({member.name})\n"
                            f"**Geçersiz/Şüpheli Davet Linki Tespit Edildi!**",
                 color=discord.Color.orange(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             embed.add_field(

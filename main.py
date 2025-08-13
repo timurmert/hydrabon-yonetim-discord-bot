@@ -1,10 +1,12 @@
 import os
 import discord
 import datetime
+import pytz
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from database import get_db
+turkey_tz = pytz.timezone('Europe/Istanbul')
 
 # .env dosyasından token yükleme
 load_dotenv()
@@ -46,7 +48,7 @@ async def on_ready():
     
     # Bot başlangıç zamanını kaydet (uptime için)
     if not hasattr(bot, 'start_time'):
-        bot.start_time = datetime.datetime.now()
+        bot.start_time = datetime.datetime.now(turkey_tz)
     
     # Veritabanı bağlantısını kur
     print("💾 Veritabanı bağlantısı kuruluyor...")
@@ -288,7 +290,7 @@ async def setup_staff_application(interaction: discord.Interaction):
         
     # Zaman damgası ve footer ekleme
     embed.set_footer(text=f"{guild.name} • Yetkili Alım Sistemi", icon_url=guild.icon.url if guild.icon else None)
-    embed.timestamp = discord.utils.utcnow()
+    embed.timestamp = datetime.datetime.now(turkey_tz)
     
     # Kalıcı buton görünümü
     view = PersistentView()
@@ -369,7 +371,7 @@ async def spam_stats_cmd(interaction: discord.Interaction, gun: int = 30):
             title="📊 Spam Koruma İstatistikleri",
             description=f"**Son {gun} gün içerisindeki spam verileri**",
             color=discord.Color.blue(),
-            timestamp=discord.utils.utcnow()
+            timestamp=datetime.datetime.now(turkey_tz)
         )
         
         # Ana istatistikler
@@ -461,7 +463,7 @@ async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int =
         embed = discord.Embed(
             title="🧹 Veritabanı Temizliği Tamamlandı",
             color=discord.Color.green(),
-            timestamp=discord.utils.utcnow()
+            timestamp=datetime.datetime.now(turkey_tz)
         )
         
         embed.add_field(
@@ -512,7 +514,7 @@ async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int =
 async def main():
     print("=" * 50)
     print("🌟 HydRaboN Discord Bot Başlatılıyor...")
-    print(f"⏰ Başlangıç Zamanı: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+    print(f"⏰ Başlangıç Zamanı: {datetime.datetime.now(turkey_tz).strftime('%d.%m.%Y %H:%M:%S')}")
     print("=" * 50)
     
     async with bot:

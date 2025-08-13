@@ -14,6 +14,7 @@ from discord import app_commands
 from typing import Optional, Union
 from database import get_db
 from .yetkili_panel import YETKILI_ROLLERI
+import pytz
 
 # Dosyanın varlığını kontrol et ve yoksa oluştur
 karaliste_path = 'karaliste.txt'
@@ -21,6 +22,7 @@ karaliste_path = 'karaliste.txt'
 class ExtraFeatures(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.turkey_tz = pytz.timezone('Europe/Istanbul')
         # Temel değişkenler
         self.yasakli_harfler = ['ي', 'و', 'هـ','ن','م','ل','ك','ق','ف','غ','ع','ظ','ط','ض','ص','ش','س','ز','ر','ذ','د','خ','ح','ج','ث','ت','ب','ا','ء','ؤ','ئ','آ','ة','ى','آ','إ','أ','آ']
         self.START_VOICE_CHANNEL_ID = 1173008264225619988
@@ -54,7 +56,7 @@ class ExtraFeatures(commands.Cog):
         self.INACTIVE_USER_TIMEOUT = 600  # İnaktif kullanıcı timeout (10 dakika)
         
         # Temizlik için son çalıştırma zamanı
-        self.last_cache_cleanup = datetime.datetime.now()
+        self.last_cache_cleanup = datetime.datetime.now(self.turkey_tz)
         
         # Üst düzey yetkili etiketleme ihlalleri cache'i
         self.mention_violations = {}  # {user_id: {'count': int, 'last_violation': datetime, 'violations': [timestamps]}}
@@ -314,7 +316,7 @@ class ExtraFeatures(commands.Cog):
                         embed = discord.Embed(
                             title="⚠️ Başka Discord Davet Linki Paylaşımı",
                             color=discord.Color.red(),
-                            timestamp=datetime.datetime.now()
+                            timestamp=datetime.datetime.now(self.turkey_tz)
                         )
                         embed.add_field(name="Kullanıcı", value=f"{message.author.mention} ({message.author.id})", inline=False)
                         embed.add_field(name="Kanal", value=f"{message.channel.mention}", inline=False)
@@ -359,7 +361,7 @@ class ExtraFeatures(commands.Cog):
             return
             
         user_id = message.author.id
-        current_time = datetime.datetime.now()
+        current_time = datetime.datetime.now(self.turkey_tz)
         message_content = message.content.strip()
         
         # Boş mesajları kontrol etme
@@ -593,7 +595,7 @@ class ExtraFeatures(commands.Cog):
                            f"**Kanal:** {channel.mention}\n"
                            f"**Kullanıcı ID:** {user.id}",
                 color=discord.Color.red(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             # Mesaj içeriğini ekle (uzunsa kısalt)
@@ -720,7 +722,7 @@ class ExtraFeatures(commands.Cog):
     async def process_mention_violation(self, user, mentioned_users):
         """Etiketleme ihlalini işler ve kademeli timeout uygular - Optimize edilmiş"""
         try:
-            current_time = datetime.datetime.now()
+            current_time = datetime.datetime.now(self.turkey_tz)
             user_id = user.id
             
             # Kullanıcının ihlal kaydını al veya oluştur
@@ -806,7 +808,7 @@ class ExtraFeatures(commands.Cog):
                            f"**İhlal Sayısı:** {violation_count}\n"
                            f"**Uygulanan Timeout:** {timeout_duration} dakika",
                 color=discord.Color.red(),
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             embed.add_field(
@@ -953,7 +955,7 @@ class ExtraFeatures(commands.Cog):
                                 description=f"**İşlemi Yapan:** {updater.mention} ({updater.name})\n"
                                            f"**Etkilenen Kullanıcı:** {after.mention} ({after.name})",
                                 color=discord.Color.red(),
-                                timestamp=discord.utils.utcnow()
+                                timestamp=datetime.datetime.now(self.turkey_tz)
                             )
                             
                             # Eklenen roller varsa
@@ -1259,7 +1261,7 @@ class ExtraFeatures(commands.Cog):
                                    f"**Kanal:** {interaction.channel.mention}\n"
                                    f"**İstenen Miktar:** {miktar:,} mesaj",
                         color=discord.Color.red(),
-                        timestamp=discord.utils.utcnow()
+                        timestamp=datetime.datetime.now(self.turkey_tz)
                     )
                     
                     embed.add_field(
@@ -1329,7 +1331,7 @@ class ExtraFeatures(commands.Cog):
             if sunucu_log_channel:
                 try:
                     # UTC+3 (Türkiye saati) hesapla
-                    turkish_time = discord.utils.utcnow()
+                    turkish_time = datetime.datetime.now(self.turkey_tz)
                     
                     # Log embed'i oluştur
                     log_embed = discord.Embed(
@@ -1352,15 +1354,18 @@ class ExtraFeatures(commands.Cog):
                         file_lines.append(f"İşlem Yapan: {interaction.user.name} ({interaction.user.id})")
                         file_lines.append(f"Kanal: #{interaction.channel.name} ({interaction.channel.id})")
                         # UTC+3 (Türkiye saati) hesapla
-                        turkish_time = discord.utils.utcnow()
+                        turkish_time = datetime.datetime.now(self.turkey_tz)
                         file_lines.append(f"Tarih: {turkish_time.strftime('%d/%m/%Y %H:%M:%S')} UTC+3")
                         file_lines.append(f"Toplam Silinen Mesaj: {len(deleted_messages_info)}")
                         file_lines.append("=" * 60)
                         file_lines.append("")
                         
                         for i, msg_info in enumerate(deleted_messages_info, 1):
-                            # Mesaj zamanını da UTC+3'e çevir
-                            msg_turkish_time = msg_info['created_at'] + datetime.timedelta(hours=3)
+                            # Mesaj zamanını UTC+3'e çevir
+                            msg_created = msg_info['created_at']
+                            if msg_created.tzinfo is None:
+                                msg_created = msg_created.replace(tzinfo=datetime.timezone.utc)
+                            msg_turkish_time = msg_created.astimezone(self.turkey_tz)
                             file_lines.append(f"[{i:03d}] {msg_turkish_time.strftime('%d/%m/%Y %H:%M:%S')}")
                             file_lines.append(f"Yazar: {msg_info['author'].name} ({msg_info['author'].id})")
                             file_lines.append(f"Mesaj ID: {msg_info['id']}")

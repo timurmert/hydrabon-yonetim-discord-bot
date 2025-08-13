@@ -4,6 +4,8 @@ from discord.ext import commands
 import asyncio
 import datetime
 from database import get_db
+import pytz
+turkey_tz = pytz.timezone('Europe/Istanbul')
 
 # Ana dosyada tanımlanan değeri burada da tanımlayarak senkronize ediyoruz
 FORM_QUESTION_COUNT = 5
@@ -175,7 +177,7 @@ class YetkiliAlim(commands.Cog):
                 embed.set_thumbnail(url=interaction.guild.icon.url)
             
             embed.set_footer(text=f"{interaction.guild.name} • Yetkili Alım Sistemi", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
-            embed.timestamp = discord.utils.utcnow()
+            embed.timestamp = datetime.datetime.now(turkey_tz)
             
             await channel.send(embed=embed)
             
@@ -338,7 +340,7 @@ class YetkiliAlim(commands.Cog):
             completion_embed.set_thumbnail(url=guild.icon.url)
             
         completion_embed.set_footer(text=f"{guild.name} • Yetkili Alım Sistemi", icon_url=guild.icon.url if guild.icon else None)
-        completion_embed.timestamp = discord.utils.utcnow()
+        completion_embed.timestamp = datetime.datetime.now(turkey_tz)
         
         await channel.send(embed=completion_embed)
         
@@ -521,7 +523,7 @@ class YetkiliAlim(commands.Cog):
             else:
                 timeout_dm_embed.set_footer(text="Yetkili Alım Sistemi")
             
-            timeout_dm_embed.timestamp = discord.utils.utcnow()
+            timeout_dm_embed.timestamp = datetime.datetime.now(turkey_tz)
             
             await user.send(embed=timeout_dm_embed)
             
@@ -714,7 +716,7 @@ class RoleSelectMenu(discord.ui.Select):
                                    f"📝 **Onaylayan Yetkili:** {interaction.user.mention}\n\n"
                                    f"Görevlerinde başarılar dileriz! 💪",
                         color=discord.Color.green(),
-                        timestamp=discord.utils.utcnow()
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                     )
                     
                     welcome_embed.set_thumbnail(url=self.user.display_avatar.url)

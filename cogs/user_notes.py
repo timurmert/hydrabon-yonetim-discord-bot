@@ -4,6 +4,7 @@ from discord.ext import commands
 import asyncio
 from database import get_db
 import datetime
+import pytz
 from typing import Optional
 
 class UserNotes(commands.Cog):
@@ -11,6 +12,7 @@ class UserNotes(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        self.turkey_tz = pytz.timezone('Europe/Istanbul')
     
     @app_commands.command(name="not", description="Kullanıcı not yönetimi")
     @app_commands.describe(
@@ -103,7 +105,7 @@ class UserNotes(commands.Cog):
                        f"**Not ID:** `{note_id}`\n"
                        f"**İçerik:** {content[:100]}{'...' if len(content) > 100 else ''}",
             color=0x00ff00,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
         
@@ -135,7 +137,7 @@ class UserNotes(commands.Cog):
             description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
                        f"**Toplam Not Sayısı:** {len(notes)}",
             color=0x3498db,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Notları ekle (en fazla 5 tane)
@@ -201,7 +203,7 @@ class UserNotes(commands.Cog):
                            f"**Eski İçerik:** {note['note_content'][:100]}{'...' if len(note['note_content']) > 100 else ''}\n"
                            f"**Yeni İçerik:** {new_content[:100]}{'...' if len(new_content) > 100 else ''}",
                 color=0x00ff00,
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
             
@@ -245,7 +247,7 @@ class UserNotes(commands.Cog):
                        f"**Tarih:** {datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')}\n\n"
                        f"Bu notu silmek istediğinizden emin misiniz?",
             color=0xff6b6b,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -277,7 +279,7 @@ class DeleteConfirmView(discord.ui.View):
                            f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
                            f"**Silinen İçerik:** {self.note['note_content'][:100]}{'...' if len(self.note['note_content']) > 100 else ''}",
                 color=0x00ff00,
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             embed.set_footer(text=f"Silen: {interaction.user.name}")
             
@@ -305,7 +307,7 @@ class DeleteConfirmView(discord.ui.View):
             title="❌ İşlem İptal Edildi",
             description="Not silme işlemi iptal edildi.",
             color=0x95a5a6,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
         # Butonları devre dışı bırak

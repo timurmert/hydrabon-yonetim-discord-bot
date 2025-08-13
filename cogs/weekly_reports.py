@@ -327,7 +327,7 @@ class WeeklyReports(commands.Cog):
                 description=f"**📅 Rapor Dönemi**\n"
                            f"{start_turkey.strftime('%d.%m.%Y %H:%M')} - {end_turkey.strftime('%d.%m.%Y %H:%M')}",
                 color=0x2b82ff,
-                timestamp=datetime.datetime.now()
+                timestamp=datetime.datetime.now(self.turkey_tz)
             )
             
             # === ÜYE İSTATİSTİKLERİ ===
