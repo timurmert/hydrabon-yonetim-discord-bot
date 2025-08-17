@@ -34,6 +34,16 @@ YETKILI_HIYERARSI = [
     1029089723110674463   # KURUCU
 ]
 
+# "Yetkili İşlemleri" bölümüne erişebilecek üst yönetim rolleri
+MANAGEMENT_ALLOWED_ROLE_IDS = [
+    YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
+    YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
+    YETKILI_ROLLERI["KURUCU"],
+]
+
+def user_has_management_permission(user: discord.Member) -> bool:
+    return any(role.id in MANAGEMENT_ALLOWED_ROLE_IDS for role in user.roles)
+
 # Komutlar için dekoratör
 def guild_only():
     """Bu dekoratör, komutun yalnızca sunucu içinde çalışabilmesini sağlar."""
@@ -77,6 +87,22 @@ class YetkiliIslemleriView(discord.ui.View):
         
         # Kullanıcı seçme ve sebep belirtme modalını göster
         await interaction.response.send_modal(YetkiDusurModal(self.cog, self.user, self.yetkili_rol_id))
+
+    @discord.ui.button(label="Yetkili Ekle", style=discord.ButtonStyle.blurple, emoji="➕", row=1)
+    async def yetkili_ekle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Sebep ve kullanıcı ID girerek yetkili ekleme"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        await interaction.response.send_modal(YetkiliEkleModal(self.cog, self.user))
+
+    @discord.ui.button(label="Yetkili Çıkart", style=discord.ButtonStyle.blurple, emoji="➖", row=1)
+    async def yetkili_cikart_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Sebep ve kullanıcı ID girerek yetkiliyi tamamen çıkartma"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        await interaction.response.send_modal(YetkiliCikartModal(self.cog, self.user))
     
     @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -130,6 +156,17 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
+        # Yönetim izin kontrolü: YK Üyeleri, YK Başkanı ve Kurucu dışındaki herkes engellenir
+        if not user_has_management_permission(interaction.user):
+            embed = discord.Embed(
+                title="⚠️ Yetersiz Yetki",
+                description=(
+                    "Bu işlem için yetkiniz yetersiz."
+                ),
+                color=discord.Color.red()
+            )
+            return await interaction.response.edit_message(embed=embed, view=self)
+
         # Yetkili işlemleri alt menüsünü göster
         view = YetkiliIslemleriView(self.cog, self.user, self.yetkili_rol_id)
         embed = discord.Embed(
@@ -1224,6 +1261,124 @@ class YetkiDusurModal(discord.ui.Modal, title="Yetki Düşürme İşlemi"):
             await interaction.response.send_message("Geçersiz kullanıcı ID'si. Lütfen sayısal bir ID girin.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"İşlem sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+class YetkiliEkleModal(discord.ui.Modal, title="Yetkili Ekle"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    user_id_input = discord.ui.TextInput(
+        label="Kullanıcı ID",
+        placeholder="Yetkili yapılacak kullanıcının ID'si",
+        min_length=15,
+        max_length=25,
+        required=True
+    )
+
+    reason_input = discord.ui.TextInput(
+        label="Sebep",
+        placeholder="Yetkili ekleme sebebi",
+        min_length=2,
+        max_length=200,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Yönetim izni kontrolü
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+        try:
+            hedef_id = int(self.user_id_input.value)
+        except ValueError:
+            return await interaction.response.send_message("Kullanıcı ID geçerli bir sayı olmalıdır.", ephemeral=True)
+        # Rol seçimi için view aç
+        view = YetkiliEkleRolSecimView(self.cog, interaction.user, hedef_id, self.reason_input.value)
+        embed = discord.Embed(
+            title="Rol Seçimi",
+            description="Lütfen verilecek yetkiyi aşağıdaki menüden seçin.",
+            color=discord.Color.blurple()
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+class YetkiliCikartModal(discord.ui.Modal, title="Yetkili Çıkart"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    user_id_input = discord.ui.TextInput(
+        label="Kullanıcı ID",
+        placeholder="Yetkili rol(ler)i kaldırılacak kullanıcının ID'si",
+        min_length=15,
+        max_length=25,
+        required=True
+    )
+
+    reason_input = discord.ui.TextInput(
+        label="Sebep",
+        placeholder="Yetkili çıkartma sebebi",
+        min_length=2,
+        max_length=200,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Yönetim izni kontrolü
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            hedef_id = int(self.user_id_input.value)
+        except ValueError:
+            return await interaction.followup.send("Kullanıcı ID geçerli bir sayı olmalıdır.", ephemeral=True)
+        await self.cog.yetkili_cikart(interaction, hedef_id, self.reason_input.value)
+
+class YetkiliEkleRolSecimMenu(discord.ui.Select):
+    def __init__(self, parent_view):
+        self.parent_view = parent_view
+        options = []
+        # STAJYER'den ADMİN'e kadar seçim sunalım; YK rollerini manuel atamayalım
+        selectable_roles = [
+            ("STAJYER", YETKILI_ROLLERI["STAJYER"]),
+            ("ASİSTAN", YETKILI_ROLLERI["ASİSTAN"]),
+            ("MODERATÖR", YETKILI_ROLLERI["MODERATÖR"]),
+            ("ADMİN", YETKILI_ROLLERI["ADMİN"]),
+        ]
+        for name, rid in selectable_roles:
+            options.append(discord.SelectOption(label=name, value=str(rid)))
+        super().__init__(
+            placeholder="Verilecek yetkiyi seçin...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.parent_view.requester.id:
+            return await interaction.response.send_message("Bu seçim size ait değil!", ephemeral=True)
+        try:
+            role_id = int(self.values[0])
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz rol seçimi.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        await self.parent_view.on_role_selected(interaction, role_id)
+
+class YetkiliEkleRolSecimView(discord.ui.View):
+    def __init__(self, cog, requester: discord.Member, hedef_kullanici_id: int, reason: str):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.requester = requester
+        self.hedef_kullanici_id = hedef_kullanici_id
+        self.reason = reason
+        self.add_item(YetkiliEkleRolSecimMenu(self))
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+    async def on_role_selected(self, interaction: discord.Interaction, role_id: int):
+        await self.cog.yetkili_ekle(interaction, self.hedef_kullanici_id, self.reason, role_id)
 
 # Otomatik Mesajlar için sınıflar
 class OtomatikMesajlarView(discord.ui.View):
@@ -3154,6 +3309,99 @@ class YetkiliPanel(commands.Cog):
                 f"Yetki düşürme işlemi sırasında bir hata oluştu: {str(e)}",
                 ephemeral=True
             )
+
+    # Yönetim onaylı başvurusuz yetkili ekleme (ilk yetki: STAJYER)
+    async def yetkili_ekle(self, interaction, hedef_kullanici_id: int, sebep: str, verilecek_rol_id: int):
+        guild = interaction.guild
+        ekleyen = interaction.user
+        try:
+            hedef_uye = await guild.fetch_member(hedef_kullanici_id)
+            if not hedef_uye:
+                return await interaction.followup.send("Belirtilen ID'ye sahip kullanıcı bulunamadı.", ephemeral=True)
+
+            # Zaten yetkili mi?
+            if any(r.id in YETKILI_HIYERARSI for r in hedef_uye.roles):
+                return await interaction.followup.send("Bu kullanıcı zaten yetkili.", ephemeral=True)
+
+            # Verilecek rol kontrolü
+            if verilecek_rol_id not in YETKILI_HIYERARSI:
+                return await interaction.followup.send("Verilecek rol, yetkili hiyerarşisinde bulunmuyor.", ephemeral=True)
+            verilecek_rol = guild.get_role(verilecek_rol_id)
+            if not verilecek_rol:
+                return await interaction.followup.send("Verilecek rol sunucuda bulunamadı.", ephemeral=True)
+
+            await hedef_uye.add_roles(verilecek_rol, reason=f"Yetkili Ekleme: {sebep}")
+
+            embed = discord.Embed(
+                title="✅ Yetkili Eklendi",
+                description=f"{hedef_uye.mention} kullanıcısına {verilecek_rol.mention} yetkisi verildi.",
+                color=discord.Color.green(),
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.add_field(name="Sebep", value=sebep or "Belirtilmedi", inline=False)
+            embed.add_field(name="İşlemi Yapan", value=f"{ekleyen.mention} ({ekleyen.id})", inline=False)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            if log_kanali:
+                log_embed = discord.Embed(
+                    title="🆕 Yetkili Ekleme",
+                    description=f"{hedef_uye.mention} yetkili yapıldı ({verilecek_rol.mention}).",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(name="Sebep", value=sebep or "Belirtilmedi", inline=False)
+                log_embed.add_field(name="İşlemi Yapan", value=f"{ekleyen.mention} ({ekleyen.id})", inline=False)
+                await log_kanali.send(embed=log_embed)
+
+        except Exception as e:
+            await interaction.followup.send(f"Yetkili ekleme sırasında hata: {str(e)}", ephemeral=True)
+
+    # Yönetim onaylı başvurusuz yetkili çıkartma (tüm yetkili rolleri kaldır)
+    async def yetkili_cikart(self, interaction, hedef_kullanici_id: int, sebep: str):
+        guild = interaction.guild
+        cikarani = interaction.user
+        try:
+            hedef_uye = await guild.fetch_member(hedef_kullanici_id)
+            if not hedef_uye:
+                return await interaction.followup.send("Belirtilen ID'ye sahip kullanıcı bulunamadı.", ephemeral=True)
+
+            yetkili_roller = [guild.get_role(rid) for rid in YETKILI_HIYERARSI]
+            mevcut_yetkili_roller = [r for r in hedef_uye.roles if r in yetkili_roller]
+            if not mevcut_yetkili_roller:
+                return await interaction.followup.send("Kullanıcının üzerinde yetkili rolü yok.", ephemeral=True)
+
+            await hedef_uye.remove_roles(*mevcut_yetkili_roller, reason=f"Yetkili Çıkartma: {sebep}")
+            # Üye rolünü ekle
+            uye_rol_id = 1029089740022095973
+            uye_rol = guild.get_role(uye_rol_id)
+            if uye_rol and uye_rol not in hedef_uye.roles:
+                await hedef_uye.add_roles(uye_rol, reason=f"Yetkili Çıkartma Sonrası Üye Rolü Eklendi: {sebep}")
+
+            embed = discord.Embed(
+                title="✅ Yetkili Çıkartıldı",
+                description=f"{hedef_uye.mention} kullanıcısının tüm yetkili rolleri kaldırıldı ve Üye rolü verildi.",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.add_field(name="Sebep", value=sebep or "Belirtilmedi", inline=False)
+            embed.add_field(name="İşlemi Yapan", value=f"{cikarani.mention} ({cikarani.id})", inline=False)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            if log_kanali:
+                log_embed = discord.Embed(
+                    title="🗑️ Yetkili Çıkartma",
+                    description=f"{hedef_uye.mention} kullanıcısının yetkileri kaldırıldı.",
+                    color=discord.Color.dark_red(),
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(name="Sebep", value=sebep or "Belirtilmedi", inline=False)
+                log_embed.add_field(name="İşlemi Yapan", value=f"{cikarani.mention} ({cikarani.id})", inline=False)
+                await log_kanali.send(embed=log_embed)
+
+        except Exception as e:
+            await interaction.followup.send(f"Yetkili çıkartma sırasında hata: {str(e)}", ephemeral=True)
 
 class DatabaseCleanupModal(discord.ui.Modal, title="Veritabanı Temizlik"):
     def __init__(self, cog, user):
