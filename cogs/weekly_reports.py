@@ -213,7 +213,7 @@ class WeeklyReports(commands.Cog):
         
         return None
     
-    @tasks.loop(time=datetime.time(hour=12, tzinfo=pytz.timezone('Europe/Istanbul')))
+    @tasks.loop(time=datetime.time(hour=9, tzinfo=datetime.timezone.utc))
     async def weekly_report_task(self):
         """Haftalık rapor görevi - Her Pazar 12:00'da çalışır (Optimize edilmiş)"""
         try:
@@ -519,15 +519,6 @@ class WeeklyReports(commands.Cog):
                     value="\n".join(lines),
                     inline=False
                 )
-            
-            # === RAPOR BİLGİLERİ ===
-            embed.add_field(
-                name="📋 Rapor Bilgileri",
-                value=f"**Oluşturma:** {datetime.datetime.now(turkey_tz).strftime('%d.%m.%Y %H:%M')}\n"
-                      f"**Sistem:** HydRaboN Bot v2.0\n"
-                      f"**Durum:** Otomatik Rapor",
-                inline=True
-            )
             
             # Footer ve thumbnail
             embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
