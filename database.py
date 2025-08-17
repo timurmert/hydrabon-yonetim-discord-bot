@@ -467,14 +467,16 @@ class Database:
         async with self.connection.cursor() as cursor:
             await cursor.execute('''
             SELECT 
-                user_id,
-                username,
-                COUNT(*) as bump_count,
-                MIN(bump_time) as first_bump,
-                MAX(bump_time) as last_bump
-            FROM bump_logs 
-            WHERE guild_id = ? AND bump_time >= ?
-            GROUP BY user_id, username
+                bl.user_id,
+                COALESCE(bu.username, MAX(bl.username)) AS username,
+                COUNT(*) AS bump_count,
+                MIN(bl.bump_time) AS first_bump,
+                MAX(bl.bump_time) AS last_bump
+            FROM bump_logs bl
+            LEFT JOIN bump_users bu
+                ON bu.user_id = bl.user_id AND bu.guild_id = bl.guild_id
+            WHERE bl.guild_id = ? AND bl.bump_time >= ?
+            GROUP BY bl.user_id
             ORDER BY bump_count DESC, last_bump DESC
             ''', (guild_id, start_time_str))
             
@@ -1073,10 +1075,15 @@ class Database:
             
             # En çok spam yapan kullanıcılar
             await cursor.execute('''
-            SELECT user_id, username, COUNT(*) as spam_count
-            FROM spam_logs 
-            WHERE guild_id = ? AND spam_time >= ?
-            GROUP BY user_id, username
+            SELECT sl.user_id,
+                   COALESCE(
+                       (SELECT bu.username FROM bump_users bu WHERE bu.user_id = sl.user_id AND bu.guild_id = sl.guild_id),
+                       MAX(sl.username)
+                   ) AS username,
+                   COUNT(*) as spam_count
+            FROM spam_logs sl
+            WHERE sl.guild_id = ? AND sl.spam_time >= ?
+            GROUP BY sl.user_id
             ORDER BY spam_count DESC
             LIMIT 10
             ''', (guild_id, start_time))
