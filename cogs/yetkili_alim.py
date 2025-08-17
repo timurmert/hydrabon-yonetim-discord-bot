@@ -806,7 +806,7 @@ class RoleSelectMenu(discord.ui.Select):
             except Exception as e:
                 print(f"Başvuru onaylama veritabanı hatası: {e}")
             
-            # Log kanalına bilgi gönder
+            # Log kanalına bilgi gönder (başvurular)
             log_channel = discord.utils.get(interaction.guild.text_channels, name="başvurular")
             if log_channel:
                 embed = discord.Embed(
@@ -815,12 +815,50 @@ class RoleSelectMenu(discord.ui.Select):
                     color=discord.Color.green(),
                     timestamp=datetime.datetime.now()
                 )
-                
                 embed.add_field(name="🏅 Verilen Rol", value=role.mention, inline=False)
                 embed.add_field(name="📝 Mesaj", value=self.message, inline=False)
                 embed.add_field(name="📊 Başvuru Bilgisi", value=f"Başvuru ID: `{self.application_id}`", inline=False)
-                
                 await log_channel.send(embed=embed)
+
+            # YK log kanalına detaylı bilgi gönder (yetkili-panel-log)
+            try:
+                yk_log_channel = interaction.guild.get_channel(1365954141880455238)
+                if yk_log_channel is None:
+                    try:
+                        yk_log_channel = await interaction.client.fetch_channel(1365954141880455238)
+                    except Exception:
+                        yk_log_channel = None
+                if yk_log_channel:
+                    # Kullanıcının sunucuya katılım tarihi
+                    joined_at_tr = None
+                    try:
+                        if self.user.joined_at:
+                            joined_at_tr = self.user.joined_at.astimezone(turkey_tz).strftime('%d.%m.%Y %H:%M')
+                    except Exception:
+                        joined_at_tr = None
+
+                    detay_embed = discord.Embed(
+                        title="🛡️ Yetkili Alımı Onayı (YK Log)",
+                        description=(
+                            f"Yeni yetkili ataması yapıldı.\n"
+                            f"Kullanıcı: {self.user.mention} ({self.user.id})"
+                        ),
+                        color=discord.Color.blurple(),
+                        timestamp=datetime.datetime.now(turkey_tz)
+                    )
+                    detay_embed.add_field(name="🏅 Verilen Rol", value=f"{role.mention} ({role.id})", inline=False)
+                    detay_embed.add_field(name="✅ Onaylayan", value=f"{interaction.user.mention} ({interaction.user.id})", inline=False)
+                    # Mesaj alanı 1024 sınırına uysun diye kırp
+                    msg_value = self.message if len(self.message) <= 1024 else (self.message[:1021] + "...")
+                    detay_embed.add_field(name="📝 Kullanıcıya Gönderilen Mesaj", value=msg_value or "-", inline=False)
+                    detay_embed.add_field(name="📊 Başvuru ID", value=f"`{self.application_id}`", inline=True)
+                    detay_embed.add_field(name="🕒 Onay Zamanı", value=datetime.datetime.now(turkey_tz).strftime('%d.%m.%Y %H:%M'), inline=True)
+                    if joined_at_tr:
+                        detay_embed.add_field(name="👋 Sunucuya Katılım", value=joined_at_tr, inline=True)
+                    detay_embed.set_thumbnail(url=self.user.display_avatar.url)
+                    await yk_log_channel.send(embed=detay_embed)
+            except Exception as e:
+                print(f"YK log gönderim hatası: {e}")
             
             # Menüyü devre dışı bırak ve bildirimi güncelle
             for child in self.view.children:

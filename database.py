@@ -165,6 +165,23 @@ class Database:
             ON member_logs(action, timestamp)
             ''')
             
+            # Presence snapshot'ları tablosu: periyodik online kullanıcı sayısı
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS presence_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                snapshot_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                online_count INTEGER NOT NULL,
+                total_members INTEGER NOT NULL
+            )
+            ''')
+            
+            # Presence için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_presence_guild_time
+            ON presence_snapshots(guild_id, snapshot_time)
+            ''')
+            
             # Kullanıcı notları tablosu
             await cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_notes (
@@ -450,14 +467,16 @@ class Database:
         async with self.connection.cursor() as cursor:
             await cursor.execute('''
             SELECT 
-                user_id,
-                username,
-                COUNT(*) as bump_count,
-                MIN(bump_time) as first_bump,
-                MAX(bump_time) as last_bump
-            FROM bump_logs 
-            WHERE guild_id = ? AND bump_time >= ?
-            GROUP BY user_id, username
+                bl.user_id,
+                COALESCE(bu.username, MAX(bl.username)) AS username,
+                COUNT(*) AS bump_count,
+                MIN(bl.bump_time) AS first_bump,
+                MAX(bl.bump_time) AS last_bump
+            FROM bump_logs bl
+            LEFT JOIN bump_users bu
+                ON bu.user_id = bl.user_id AND bu.guild_id = bl.guild_id
+            WHERE bl.guild_id = ? AND bl.bump_time >= ?
+            GROUP BY bl.user_id
             ORDER BY bump_count DESC, last_bump DESC
             ''', (guild_id, start_time_str))
             
@@ -971,6 +990,36 @@ class Database:
             bytes_size /= 1024.0
         return f"{bytes_size:.1f} TB"
         
+    async def add_presence_snapshot(self, guild_id: int, online_count: int, total_members: int):
+        """Anlık online kullanıcı sayısını snapshot olarak kaydeder"""
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO presence_snapshots (guild_id, snapshot_time, online_count, total_members)
+            VALUES (?, ?, ?, ?)
+            ''', (guild_id, current_time, online_count, total_members))
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def get_presence_snapshots(self, guild_id: int, start_time: datetime, end_time: datetime):
+        """Belirtilen tarih aralığındaki presence snapshot'larını döndürür"""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT snapshot_time, online_count, total_members
+            FROM presence_snapshots
+            WHERE guild_id = ? AND snapshot_time >= ? AND snapshot_time < ?
+            ORDER BY snapshot_time ASC
+            ''', (guild_id, start_time.isoformat(), end_time.isoformat()))
+            rows = await cursor.fetchall()
+            snapshots = []
+            for row in rows:
+                snapshots.append({
+                    'snapshot_time': row[0],
+                    'online_count': row[1],
+                    'total_members': row[2]
+                })
+            return snapshots
+
     async def add_spam_log(self, user_id, username, guild_id, channel_id, message_content, timeout_applied=True, messages_deleted=3):
         """Spam kaydını veritabanına ekler
         
@@ -1026,10 +1075,15 @@ class Database:
             
             # En çok spam yapan kullanıcılar
             await cursor.execute('''
-            SELECT user_id, username, COUNT(*) as spam_count
-            FROM spam_logs 
-            WHERE guild_id = ? AND spam_time >= ?
-            GROUP BY user_id, username
+            SELECT sl.user_id,
+                   COALESCE(
+                       (SELECT bu.username FROM bump_users bu WHERE bu.user_id = sl.user_id AND bu.guild_id = sl.guild_id),
+                       MAX(sl.username)
+                   ) AS username,
+                   COUNT(*) as spam_count
+            FROM spam_logs sl
+            WHERE sl.guild_id = ? AND sl.spam_time >= ?
+            GROUP BY sl.user_id
             ORDER BY spam_count DESC
             LIMIT 10
             ''', (guild_id, start_time))
@@ -1107,38 +1161,11 @@ class Database:
             # Net değişim
             net_change = joins - leaves
             
-            # Son girişler (en son 5)
-            await cursor.execute('''
-            SELECT username, timestamp FROM member_logs 
-            WHERE guild_id = ? AND action = 'join' AND timestamp >= ? AND timestamp < ?
-            ORDER BY timestamp DESC LIMIT 5
-            ''', (guild_id, start_time_str, end_time_str))
-            recent_joins = []
-            for row in await cursor.fetchall():
-                recent_joins.append({
-                    'username': row[0],
-                    'timestamp': row[1]
-                })
-            
-            # Son çıkışlar (en son 5)
-            await cursor.execute('''
-            SELECT username, timestamp FROM member_logs 
-            WHERE guild_id = ? AND action = 'leave' AND timestamp >= ? AND timestamp < ?
-            ORDER BY timestamp DESC LIMIT 5
-            ''', (guild_id, start_time_str, end_time_str))
-            recent_leaves = []
-            for row in await cursor.fetchall():
-                recent_leaves.append({
-                    'username': row[0],
-                    'timestamp': row[1]
-                })
-            
             return {
                 'joins': joins,
                 'leaves': leaves,
                 'net_change': net_change,
-                'recent_joins': recent_joins,
-                'recent_leaves': recent_leaves
+                # Son aktiviteler kaldırıldı
             }
     
     async def add_user_note(self, user_id, username, discriminator, note_content, created_by, created_by_username, guild_id):
