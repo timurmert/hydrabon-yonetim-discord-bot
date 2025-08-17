@@ -29,7 +29,7 @@ class ExtraFeatures(commands.Cog):
         self.created_channels = []  # Oluşturulan kanalları takip etmek için liste
         self.channel_owners = {}  # Kanal ID'sini ve sahibinin ID'sini tutan sözlük
         self.GUILD_ID = 1029088146752815138
-        self.WELCOME_CHANNEL_ID = 1029089828823900262
+        self.WELCOME_CHANNEL_ID = 1406431661872124026
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.exempt_users = [315888596437696522,
                              906303284434833448,
