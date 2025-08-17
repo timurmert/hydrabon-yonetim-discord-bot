@@ -25,10 +25,17 @@ class WeeklyReports(commands.Cog):
         
         # Haftalık rapor görevini başlat
         self.weekly_report_task.start()
+        
+        # Presence snapshot görevini başlat (15 dakikada bir)
+        self.presence_snapshot_task.start()
     
     def cog_unload(self):
         """Cog kaldırıldığında task'ı durdur"""
         self.weekly_report_task.cancel()
+        try:
+            self.presence_snapshot_task.cancel()
+        except Exception:
+            pass
         # Rapor komut grubunu bot'tan kaldır
         self.bot.tree.remove_command(self.rapor_group.name)
     
@@ -228,6 +235,85 @@ class WeeklyReports(commands.Cog):
     async def before_weekly_report_task(self):
         """Task başlamadan önce bot'un hazır olmasını bekle"""
         await self.bot.wait_until_ready()
+
+    @tasks.loop(seconds=900)
+    async def presence_snapshot_task(self):
+        """15 dakikada bir online kullanıcı sayısını kaydeder"""
+        try:
+            guild = self.bot.get_guild(self.GUILD_ID)
+            if not guild:
+                return
+            # Çevrimiçi üyeler (botlar dahil)
+            online_members = len([m for m in guild.members if m.status != discord.Status.offline])
+            total_members = guild.member_count or len(guild.members)
+            db = await get_db()
+            await db.add_presence_snapshot(guild.id, online_members, total_members)
+        except Exception as e:
+            print(f"Presence snapshot hatası: {e}")
+
+    @presence_snapshot_task.before_loop
+    async def before_presence_snapshot_task(self):
+        await self.bot.wait_until_ready()
+
+    def _compute_presence_averages(self, snapshots, turkey_tz):
+        """6 saatlik dilimler, gündüz/gece ve genel ortalamaları hesaplar"""
+        if not snapshots:
+            return {
+                'ranges': {
+                    '00-06': None, '06-12': None, '12-18': None, '18-00': None
+                },
+                'day': None,
+                'night': None,
+                'overall': None,
+                'samples': 0
+            }
+
+        buckets = {
+            '00-06': [],
+            '06-12': [],
+            '12-18': [],
+            '18-00': []
+        }
+        day_values = []  # 06-18
+        night_values = []  # 18-06
+        all_values = []
+
+        for snap in snapshots:
+            try:
+                # snapshot_time string olabilir; ISO formatlı
+                snap_time = snap['snapshot_time']
+                dt = datetime.datetime.fromisoformat(snap_time.replace('Z', '+00:00')) if isinstance(snap_time, str) else snap_time
+                dt_tr = dt.astimezone(turkey_tz)
+                hour = dt_tr.hour
+                val = int(snap['online_count'])
+                all_values.append(val)
+
+                if 0 <= hour < 6:
+                    buckets['00-06'].append(val)
+                    night_values.append(val)
+                elif 6 <= hour < 12:
+                    buckets['06-12'].append(val)
+                    day_values.append(val)
+                elif 12 <= hour < 18:
+                    buckets['12-18'].append(val)
+                    day_values.append(val)
+                else:  # 18-24
+                    buckets['18-00'].append(val)
+                    night_values.append(val)
+            except Exception:
+                continue
+
+        def avg(lst):
+            return (sum(lst) / len(lst)) if lst else None
+
+        ranges_avg = {k: avg(v) for k, v in buckets.items()}
+        return {
+            'ranges': ranges_avg,
+            'day': avg(day_values),
+            'night': avg(night_values),
+            'overall': avg(all_values),
+            'samples': len(all_values)
+        }
     
     async def generate_weekly_report(self):
         """Haftalık raporu oluşturur ve gönderir"""
@@ -280,6 +366,8 @@ class WeeklyReports(commands.Cog):
             
             # Bu rapordan 4 hafta önceki verileri sil (28 gün)
             cleanup_cutoff = report_start_date - datetime.timedelta(days=28)
+            # Presence snapshot'ları için 2 haftadan eski olanları sil (14 gün)
+            presence_cutoff = report_start_date - datetime.timedelta(days=14)
             
             async with db.connection.cursor() as cursor:
                 # Eski member loglarını temizle
@@ -304,6 +392,13 @@ class WeeklyReports(commands.Cog):
                 ''', (spam_cutoff.isoformat(),))
                 
                 spam_deleted = cursor.rowcount
+
+                # Eski presence snapshot'larını temizle (14 gün öncesi)
+                await cursor.execute('''
+                DELETE FROM presence_snapshots WHERE snapshot_time < ?
+                ''', (presence_cutoff.isoformat(),))
+                
+                presence_deleted = cursor.rowcount
                 
                 await db.connection.commit()
                 
@@ -389,34 +484,10 @@ class WeeklyReports(commands.Cog):
                     inline=True
                 )
             
-            # === SON AKTİVİTELER ===
-            activities = []
-            
-            # Son girişler
-            if member_stats['recent_joins']:
-                activities.append("**📥 Son Girişler:**")
-                for join in member_stats['recent_joins'][:3]:
-                    join_time = datetime.datetime.fromisoformat(join['timestamp'].replace('Z', '+00:00'))
-                    join_turkey = join_time.astimezone(turkey_tz)
-                    activities.append(f"• {join['username']} - {join_turkey.strftime('%d.%m %H:%M')}")
-            
-            # Son çıkışlar
-            if member_stats['recent_leaves']:
-                activities.append("\n**📤 Son Çıkışlar:**")
-                for leave in member_stats['recent_leaves'][:3]:
-                    leave_time = datetime.datetime.fromisoformat(leave['timestamp'].replace('Z', '+00:00'))
-                    leave_turkey = leave_time.astimezone(turkey_tz)
-                    activities.append(f"• {leave['username']} - {leave_turkey.strftime('%d.%m %H:%M')}")
-            
-            if activities:
-                embed.add_field(
-                    name="🔄 Son Aktiviteler",
-                    value="\n".join(activities),
-                    inline=False
-                )
+            # Son Aktiviteler bölümü kaldırıldı
             
             # === SUNUCU BİLGİLERİ ===
-            online_members = len([m for m in guild.members if m.status != discord.Status.offline and not m.bot])
+            online_members = len([m for m in guild.members if m.status != discord.Status.offline])
             
             embed.add_field(
                 name="ℹ️ Genel Bilgiler",
@@ -426,6 +497,28 @@ class WeeklyReports(commands.Cog):
                       f"**Rol Sayısı:** {len(guild.roles)}",
                 inline=True
             )
+
+            # === AKTİF KULLANICI ORTALAMALARI (HAFTALIK) ===
+            presence_snaps = await db.get_presence_snapshots(guild.id, start_date, end_date)
+            presence_stats = self._compute_presence_averages(presence_snaps, turkey_tz)
+            if presence_stats['samples'] > 0:
+                r = presence_stats['ranges']
+                def fmt(v):
+                    return f"{v:.1f}" if v is not None else "-"
+                lines = [
+                    f"00-06: {fmt(r['00-06'])}",
+                    f"06-12: {fmt(r['06-12'])}",
+                    f"12-18: {fmt(r['12-18'])}",
+                    f"18-00: {fmt(r['18-00'])}",
+                    f"Gündüz (06-18): {fmt(presence_stats['day'])}",
+                    f"Gece (18-06): {fmt(presence_stats['night'])}",
+                    f"Genel Ortalama: {fmt(presence_stats['overall'])}",
+                ]
+                embed.add_field(
+                    name="🟢 Aktif Üye Ortalamaları (Haftalık)",
+                    value="\n".join(lines),
+                    inline=False
+                )
             
             # === RAPOR BİLGİLERİ ===
             embed.add_field(
