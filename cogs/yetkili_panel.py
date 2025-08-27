@@ -3332,6 +3332,14 @@ class YetkiliPanel(commands.Cog):
 
             await hedef_uye.add_roles(verilecek_rol, reason=f"Yetkili Ekleme: {sebep}")
 
+            # ÜYE rolünü kaldır (ID: 1029089740022095973)
+            uye_rol = guild.get_role(1029089740022095973)
+            if uye_rol and uye_rol in hedef_uye.roles:
+                await hedef_uye.remove_roles(
+                    uye_rol,
+                    reason=f"Yetkili rolü verildiği için ÜYE rolü kaldırıldı - {ekleyen.name} tarafından"
+                )
+
             embed = discord.Embed(
                 title="✅ Yetkili Eklendi",
                 description=f"{hedef_uye.mention} kullanıcısına {verilecek_rol.mention} yetkisi verildi.",
