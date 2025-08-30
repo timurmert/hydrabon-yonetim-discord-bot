@@ -2896,7 +2896,7 @@ class YetkiliPanel(commands.Cog):
         
         # Temel istatistikleri hesapla
         total_members = guild.member_count
-        online_members = len([m for m in guild.members if m.status != discord.Status.offline and not m.bot])
+        online_members = len([m for m in guild.members if m.status != discord.Status.offline])
         total_channels = len(guild.channels)
         text_channels = len(guild.text_channels)
         voice_channels = len(guild.voice_channels)
