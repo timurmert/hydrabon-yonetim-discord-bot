@@ -52,6 +52,31 @@ class BumpLogView(discord.ui.View):
         
         await self.cog.show_stats(interaction, "monthly")
 
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.secondary, emoji="◀️", row=2)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # YetkiliPanel cog'unu bul ve ana panele dön
+        panel_cog = interaction.client.get_cog("YetkiliPanel")
+        if panel_cog is None:
+            return await interaction.response.send_message("Yetkili panel modülü bulunamadı.", ephemeral=True)
+
+        # Bu bir bileşen etkileşimi; önce güncellemeyi defer et, sonra ana paneli düzenle
+        try:
+            await interaction.response.defer_update()
+        except Exception:
+            pass
+
+        try:
+            await panel_cog.show_main_panel(interaction)
+        except Exception as e:
+            # Her ihtimale karşı hata durumunda kullanıcıya bilgi ver
+            try:
+                await interaction.followup.send(f"Geri dönüş sırasında bir hata oluştu: {e}", ephemeral=True)
+            except Exception:
+                pass
+
 class BumpTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
