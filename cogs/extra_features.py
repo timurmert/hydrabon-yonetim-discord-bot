@@ -31,6 +31,7 @@ class ExtraFeatures(commands.Cog):
         self.GUILD_ID = 1029088146752815138
         self.WELCOME_CHANNEL_ID = 1406431661872124026
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
+        self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
         self.exempt_users = [315888596437696522,
                              906303284434833448,
                              591347986995478545,
@@ -292,6 +293,63 @@ class ExtraFeatures(commands.Cog):
         if message.author.id in self.exempt_users:
             return
             
+        # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
+        try:
+            if message.mention_everyone or message.role_mentions or message.mentions:
+                # Kurucu rolü etiketlendi mi?
+                kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
+                kurucu_role_etiketi = (kurucu_role is not None and kurucu_role in message.role_mentions)
+
+                # Kurucu kullanıcı (role sahibi) etiketlendi mi? (rolü taşıyan herkes kurucu olabilir)
+                kurucu_kullanici_etiketi = False
+                if message.mentions:
+                    for m in message.mentions:
+                        if isinstance(m, discord.Member) and any(r.id == self.KURUCU_ROLE_ID for r in m.roles):
+                            kurucu_kullanici_etiketi = True
+                            break
+
+                if kurucu_role_etiketi or kurucu_kullanici_etiketi:
+                    try:
+                        await message.delete()
+                    except discord.Forbidden:
+                        pass
+                    except Exception:
+                        pass
+
+                    # Kullanıcıya yönlendirici kısa uyarı
+                    try:
+                        ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
+                        ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
+                        warn = await message.channel.send(
+                            f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
+                        await warn.delete(delay=6)
+                    except Exception:
+                        pass
+
+                    # Log kanalına bilgi
+                    try:
+                        log_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
+                        if log_channel:
+                            embed = discord.Embed(
+                                title="🚫 Kurucu Etiketleme Mesajı Silindi",
+                                description=(
+                                    f"**Kullanıcı:** {message.author.mention} ({message.author.id})\n"
+                                    f"**Kanal:** {message.channel.mention}\n"
+                                    f"**İçerik:** ```{message.content[:1000]}```"
+                                ),
+                                color=discord.Color.red(),
+                                timestamp=datetime.datetime.now(self.turkey_tz)
+                            )
+                            embed.set_thumbnail(url=message.author.display_avatar.url)
+                            embed.set_footer(text=f"{message.guild.name} • Kurucu Etiket Koruma")
+                            asyncio.create_task(self.safe_send(log_channel, embed=embed))
+                    except Exception:
+                        pass
+
+                    return
+        except Exception:
+            pass
+
         # Üst düzey yetkili etiketleme kontrolü
         await self.check_high_level_mentions(message)
             
