@@ -1010,6 +1010,14 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
                 ephemeral=True
             )
         
+        # Çift tıklamayı engelle: Butonu devre dışı bırak ve görünümü güncelle
+        button.disabled = True
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.edit_original_response(view=self)
+        except Exception:
+            pass
+
         # Duyurunun gönderileceği üyeleri topla
         guild = interaction.guild
         hedef_uyeler = set()
