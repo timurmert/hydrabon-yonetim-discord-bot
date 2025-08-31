@@ -399,6 +399,15 @@ class WeeklyReports(commands.Cog):
                 ''', (cleanup_cutoff.isoformat(),))
                 staff_deleted = cursor.rowcount
 
+                # Eski staff_message_stats kayıtlarını temizle (28 gün öncesi)
+                try:
+                    cutoff_date_str = cleanup_cutoff.date().isoformat()
+                    await cursor.execute('''
+                    DELETE FROM staff_message_stats WHERE message_date < ?
+                    ''', (cutoff_date_str,))
+                except Exception:
+                    pass
+
                 # Eski presence snapshot'larını temizle (14 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
