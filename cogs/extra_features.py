@@ -1469,22 +1469,28 @@ class ExtraFeatures(commands.Cog):
                     # Dosya varsa dosya ile birlikte gönder
                     if file_content:
                         # Geçici dosya oluştur
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
-                            temp_file.write(file_content)
-                            temp_file_path = temp_file.name
-                        
-                        # Dosya adını oluştur (UTC+3 ile)
-                        timestamp = turkish_time.strftime('%Y%m%d_%H%M%S')
-                        filename = f"silinen_mesajlar_{timestamp}.txt"
-                        
-                        # Fire-and-forget: Sunucu log background'da gönderilir
-                        asyncio.create_task(self.safe_send(sunucu_log_channel, embed=log_embed))
-                        
-                        # Geçici dosyayı temizle
+                        temp_file_path = None
                         try:
-                            os.unlink(temp_file_path)
-                        except:
-                            pass
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
+                                temp_file.write(file_content)
+                                temp_file_path = temp_file.name
+                            
+                            # Dosya adını oluştur (UTC+3 ile)
+                            timestamp = turkish_time.strftime('%Y%m%d_%H%M%S')
+                            filename = f"silinen_mesajlar_{timestamp}.txt"
+                            
+                            # Embed + dosyayı birlikte gönder
+                            await sunucu_log_channel.send(
+                                embed=log_embed,
+                                file=discord.File(temp_file_path, filename=filename)
+                            )
+                        finally:
+                            # Geçici dosyayı temizle
+                            if temp_file_path and os.path.exists(temp_file_path):
+                                try:
+                                    os.unlink(temp_file_path)
+                                except Exception:
+                                    pass
                     else:
                         # Dosya yoksa sadece embed gönder
                         # Fire-and-forget: Sunucu log background'da gönderilir
