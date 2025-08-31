@@ -393,6 +393,12 @@ class WeeklyReports(commands.Cog):
                 
                 spam_deleted = cursor.rowcount
 
+                # Eski staff_changes kayıtlarını temizle (28 gün öncesi)
+                await cursor.execute('''
+                DELETE FROM staff_changes WHERE created_at < ?
+                ''', (cleanup_cutoff.isoformat(),))
+                staff_deleted = cursor.rowcount
+
                 # Eski presence snapshot'larını temizle (14 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
@@ -482,6 +488,58 @@ class WeeklyReports(commands.Cog):
                     name="📈 Bump İstatistikleri",
                     value="Bu hafta bump aktivitesi tespit edilmedi.",
                     inline=True
+                )
+            
+            # === YETKİLİ KADRO DEĞİŞİKLİKLERİ ===
+            try:
+                staff_stats = await db.get_staff_change_stats(guild.id, start_date, end_date)
+                staff_changes = await db.get_staff_changes_by_period(guild.id, start_date, end_date)
+                total_events = sum(staff_stats.values())
+                if total_events > 0:
+                    lines = []
+                    # Özet
+                    lines.append(f"Toplam: {total_events} işlem")
+                    lines.append(f"• Yeni Gelen: {staff_stats.get('added', 0)}")
+                    lines.append(f"• Yükselen: {staff_stats.get('promoted', 0)}")
+                    lines.append(f"• Düşen: {staff_stats.get('demoted', 0)}")
+                    lines.append(f"• Görevden Alınan: {staff_stats.get('removed', 0)}")
+                    # Detaylı liste (maks 10 satır)
+                    if staff_changes:
+                        turkey_tz = self.turkey_tz
+                        detail_lines = []
+                        action_map = {
+                            'added': '➕ Eklendi',
+                            'removed': '➖ Çıkartıldı',
+                            'promoted': '⬆️ Yükseltildi',
+                            'demoted': '⬇️ Düşürüldü'
+                        }
+                        for ch in staff_changes[:10]:
+                            user_disp = f"<@{ch['user_id']}>"
+                            role_from = ch['old_role_name'] or (f"<@&{ch['old_role_id']}>" if ch['old_role_id'] else '-')
+                            role_to = ch['new_role_name'] or (f"<@&{ch['new_role_id']}>" if ch['new_role_id'] else '-')
+                            reason = ch['reason'] or '-'
+                            detail_lines.append(
+                                f"{user_disp}\n"
+                                f"└ {role_from} → {role_to}\n"
+                                f"└ Sebep: {reason}"
+                            )
+                        lines.append("\n".join(detail_lines))
+                    embed.add_field(
+                        name="🛡️ Yetkili Kadro Değişiklikleri",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="🛡️ Yetkili Kadro Değişiklikleri",
+                        value="Bu hafta yetkili kadrosunda değişiklik yok.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="🛡️ Yetkili Kadro Değişiklikleri",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
                 )
             
             # Son Aktiviteler bölümü kaldırıldı
