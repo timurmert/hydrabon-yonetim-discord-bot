@@ -160,6 +160,17 @@ class ServerLogs(commands.Cog):
                 
             embed.add_field(name="İçerik", value=content, inline=False)
         
+        # İşlemi yapanı belirlemeye çalış (audit log)
+        executor_user = None
+        try:
+            executor_user = await self.get_audit_log_executor(message.guild, discord.AuditLogAction.message_delete, message.author.id)
+        except Exception:
+            executor_user = None
+        if executor_user:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor_user.mention} ({executor_user.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+        
         # Eklentileri göster
         if message.attachments:
             files = []
@@ -331,6 +342,9 @@ class ServerLogs(commands.Cog):
                 content = content[:1021] + "..."
             embed.add_field(name="Yeni İçerik", value=content, inline=False)
         
+        # İşlemi yapan (mesaj sahibi kendi düzenledi)
+        embed.add_field(name="İşlemi Yapan", value=f"{before.author.mention} ({before.author.name})", inline=False)
+        
         # Footer bilgisi
         embed.set_footer(text=f"Kullanıcı ID: {before.author.id}")
         
@@ -413,6 +427,8 @@ class ServerLogs(commands.Cog):
             
         # Eğer bir değişiklik yoksa gönderme
         if embed.title:
+            # İşlemi yapan (kullanıcının kendisi)
+            embed.add_field(name="İşlemi Yapan", value=f"{member.mention} ({member.name})", inline=False)
             await self.send_log_embed(member.guild, embed)
 
     @commands.Cog.listener()
@@ -434,6 +450,9 @@ class ServerLogs(commands.Cog):
         
         # Kullanıcı avatarı
         embed.set_thumbnail(url=member.display_avatar.url)
+        
+        # İşlemi yapan (kullanıcının kendisi)
+        embed.add_field(name="İşlemi Yapan", value=f"{member.mention} ({member.name})", inline=False)
         
         await self.send_log_embed(member.guild, embed)
 
@@ -472,6 +491,9 @@ class ServerLogs(commands.Cog):
         # Kullanıcı avatarı
         embed.set_thumbnail(url=member.display_avatar.url)
         
+        # İşlemi yapan (kullanıcının kendisi)
+        embed.add_field(name="İşlemi Yapan", value=f"{member.mention} ({member.name})", inline=False)
+        
         await self.send_log_embed(member.guild, embed)
 
     @commands.Cog.listener()
@@ -491,6 +513,18 @@ class ServerLogs(commands.Cog):
             
             embed.set_thumbnail(url=after.display_avatar.url)
             embed.set_footer(text=f"Kullanıcı ID: {after.id}")
+            
+            # İşlemi yapanı belirlemeye çalış (audit log; bulunamazsa kullanıcı kendi değişikliği olabilir)
+            executor_user = None
+            try:
+                executor_user = await self.get_audit_log_executor(after.guild, discord.AuditLogAction.member_update, after.id)
+            except Exception:
+                executor_user = None
+            if executor_user:
+                embed.add_field(name="İşlemi Yapan", value=f"{executor_user.mention} ({executor_user.name})", inline=False)
+            else:
+                # Kullanıcı kendisi yapmış olabilir, yine de standartlaştırma için Belirlenemedi yaz
+                embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
             
             await self.send_log_embed(after.guild, embed)
             
@@ -520,6 +554,11 @@ class ServerLogs(commands.Cog):
                 embed.set_thumbnail(url=after.display_avatar.url)
                 embed.set_footer(text=f"Kullanıcı ID: {after.id}")
                 
+                if executor:
+                    embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+                else:
+                    embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+                
                 await self.send_log_embed(after.guild, embed)
                 
             if removed_roles:
@@ -541,6 +580,11 @@ class ServerLogs(commands.Cog):
                 
                 embed.set_thumbnail(url=after.display_avatar.url)
                 embed.set_footer(text=f"Kullanıcı ID: {after.id}")
+                
+                if executor:
+                    embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+                else:
+                    embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
                 
                 await self.send_log_embed(after.guild, embed)
 
@@ -565,6 +609,10 @@ class ServerLogs(commands.Cog):
         if hasattr(channel, 'category') and channel.category:
             embed.add_field(name="Kategori", value=channel.category.name, inline=False)
         
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
         await self.send_log_embed(channel.guild, embed)
 
     @commands.Cog.listener()
@@ -588,6 +636,10 @@ class ServerLogs(commands.Cog):
         if hasattr(channel, 'category') and channel.category:
             embed.add_field(name="Kategori", value=channel.category.name, inline=False)
         
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
         await self.send_log_embed(channel.guild, embed)
 
     @commands.Cog.listener()
@@ -644,6 +696,10 @@ class ServerLogs(commands.Cog):
             # Değişiklikleri ekle
             embed.add_field(name="Değişiklikler", value="\n".join(changes), inline=False)
             
+            if executor:
+                embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+            else:
+                embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
             await self.send_log_embed(after.guild, embed)
 
     @commands.Cog.listener()
@@ -684,6 +740,10 @@ class ServerLogs(commands.Cog):
         if permissions:
             embed.add_field(name="Önemli Yetkiler", value=", ".join(permissions), inline=False)
         
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
         await self.send_log_embed(role.guild, embed)
 
     @commands.Cog.listener()
@@ -704,6 +764,10 @@ class ServerLogs(commands.Cog):
             timestamp=datetime.datetime.now(self.turkey_tz)
         )
         
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
         await self.send_log_embed(role.guild, embed)
 
     @commands.Cog.listener()
@@ -770,6 +834,10 @@ class ServerLogs(commands.Cog):
                     
                 embed.add_field(name="İzin Değişiklikleri", value=perm_text, inline=False)
             
+            if executor:
+                embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+            else:
+                embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
             await self.send_log_embed(after.guild, embed)
     
     async def handle_role_position_change(self, before, after):
@@ -862,6 +930,10 @@ class ServerLogs(commands.Cog):
             
             embed.add_field(name="Pozisyon Değişiklikleri", value=full_text, inline=False)
         
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
         await self.send_log_embed(guild, embed)
     
     async def get_audit_log_executor(self, guild, action_type, target_id=None, limit=5):
