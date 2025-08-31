@@ -6,6 +6,7 @@ from typing import Optional, Union
 import asyncio
 import re
 import random
+from database import get_db
 
 class ServerLogs(commands.Cog):
     def __init__(self, bot):
@@ -304,6 +305,31 @@ class ServerLogs(commands.Cog):
                     embed=deleted_summary,
                     allowed_mentions=discord.AllowedMentions(everyone=True)
                 )
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Yetkili mesaj sayımlarını toplar (Kurucu, YK hariç)."""
+        try:
+            if message.author.bot or not message.guild:
+                return
+            # Yetkili mi?
+            user_role_ids = {role.id for role in message.author.roles}
+            if not user_role_ids & set(self.yetkili_rolleri.values()):
+                return
+            # Üst yönetim hariç: Kurucu, YK Başkanı, YK Üyeleri
+            excluded = {
+                self.yetkili_rolleri.get("KURUCU"),
+                self.yetkili_rolleri.get("YÖNETİM KURULU BAŞKANI"),
+                self.yetkili_rolleri.get("YÖNETİM KURULU ÜYELERİ"),
+            }
+            if any(rid in user_role_ids for rid in excluded if rid):
+                return
+            # Sayaç artır
+            db = await get_db()
+            created_iso = message.created_at.replace(tzinfo=datetime.timezone.utc).isoformat() if message.created_at else datetime.datetime.now(datetime.timezone.utc).isoformat()
+            await db.increment_staff_message(message.guild.id, message.author.id, message.author.name, created_iso)
+        except Exception:
+            pass
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):

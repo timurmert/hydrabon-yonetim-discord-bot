@@ -542,6 +542,62 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
+            # === TOP 10 AKTİF YETKİLİ (Mesaj) ===
+            try:
+                # Üst yönetim hariç tutacağımız rol ID'leri
+                excluded_role_ids = {
+                    1029089723110674463,  # KURUCU
+                    1029089727061692522,  # YK BAŞKANI
+                    1029089731314720798,  # YK ÜYELERİ
+                }
+                # Veritabanından adayları al (fazla getirip filtreleyeceğiz)
+                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=20)
+                # Filtre: yetkili olmalı ve excluded rollerden hiçbiri olmamalı
+                try:
+                    from cogs.yetkili_panel import YETKILI_HIYERARSI
+                except Exception:
+                    YETKILI_HIYERARSI = []
+                def is_staff(member):
+                    user_role_ids = {r.id for r in member.roles}
+                    return any(rid in user_role_ids for rid in YETKILI_HIYERARSI)
+                def is_excluded(member):
+                    user_role_ids = {r.id for r in member.roles}
+                    return any(rid in user_role_ids for rid in excluded_role_ids)
+                results = []
+                for row in top_candidates:
+                    member = guild.get_member(row['user_id'])
+                    if not member:
+                        continue
+                    if not is_staff(member):
+                        continue
+                    if is_excluded(member):
+                        continue
+                    results.append((member, row['total_messages']))
+                # Sırala ve top 10 al
+                results.sort(key=lambda x: x[1], reverse=True)
+                top10 = results[:10]
+                if top10:
+                    lines = []
+                    for i, (member, count) in enumerate(top10, 1):
+                        lines.append(f"**{i}.** {member.mention} - {count} mesaj")
+                    embed.add_field(
+                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        value="\n".join(lines),
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        value="Bu hafta uygun kriterlerde mesaj aktivitesi bulunamadı.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="💬 Haftalık En Aktif 10 Yetkili",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
             # Son Aktiviteler bölümü kaldırıldı
             
             # === SUNUCU BİLGİLERİ ===

@@ -243,6 +243,27 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_staff_changes_action
             ON staff_changes(action, created_at)
             ''')
+
+            # Yetkili mesaj istatistikleri (günlük toplu)
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_message_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                message_date TEXT NOT NULL, -- ISO YYYY-MM-DD (UTC)
+                message_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            await cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_msg_unique
+            ON staff_message_stats(guild_id, user_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_msg_guild_date
+            ON staff_message_stats(guild_id, message_date)
+            ''')
             
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
@@ -1469,6 +1490,53 @@ class Database:
                 'top_admin_count': top_admin_count,
                 'weekly_notes': weekly_notes
             }
+
+    async def increment_staff_message(self, guild_id: int, user_id: int, username: str, created_at_iso: str):
+        """Yetkili günlük mesaj sayısını 1 artırır (created_at_iso UTC ISO)."""
+        # message_date (UTC gün) çıkar
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(created_at_iso.replace('Z', '+00:00')) if 'T' in created_at_iso else datetime.now(timezone.utc)
+            dt_utc = dt.astimezone(timezone.utc)
+            message_date = dt_utc.strftime('%Y-%m-%d')
+        except Exception:
+            from datetime import datetime, timezone
+            message_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        async with self.connection.cursor() as cursor:
+            # Upsert
+            await cursor.execute('''
+            INSERT INTO staff_message_stats (guild_id, user_id, username, message_date, message_count)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(guild_id, user_id, message_date) DO UPDATE SET
+              username = excluded.username,
+              message_count = message_count + 1
+            ''', (guild_id, user_id, username, message_date))
+            await self.connection.commit()
+
+    async def get_top_staff_message_stats(self, guild_id: int, start_date, end_date, exclude_role_ids=None, resolver=None, limit: int = 10):
+        """Belirli aralıkta en çok mesaj atan yetkilileri döndürür.
+        exclude_role_ids/resolver parametreleri kullanılmaz; filtre rapor tarafında yapılır.
+        """
+        start_str = start_date.date().isoformat()
+        end_str = end_date.date().isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, MAX(username) as username, SUM(message_count) as total_messages
+            FROM staff_message_stats
+            WHERE guild_id = ? AND message_date >= ? AND message_date < ?
+            GROUP BY user_id
+            ORDER BY total_messages DESC
+            LIMIT ?
+            ''', (guild_id, start_str, end_str, limit * 3))  # Fazla getir, raporda rol filtrele
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                results.append({
+                    'user_id': row[0],
+                    'username': row[1],
+                    'total_messages': row[2]
+                })
+            return results
 
 
 
