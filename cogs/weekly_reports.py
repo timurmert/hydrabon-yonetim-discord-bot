@@ -375,29 +375,22 @@ class WeeklyReports(commands.Cog):
                 DELETE FROM member_logs WHERE timestamp < ?
                 ''', (cleanup_cutoff.isoformat(),))
                 
-                member_deleted = cursor.rowcount
-                
                 # Eski bump loglarını temizle (60 gün öncesi)
                 bump_cutoff = report_start_date - datetime.timedelta(days=60)
                 await cursor.execute('''
                 DELETE FROM bump_logs WHERE bump_time < ?
                 ''', (bump_cutoff.isoformat(),))
                 
-                bump_deleted = cursor.rowcount
-                
                 # Eski spam loglarını temizle (30 gün öncesi)  
                 spam_cutoff = report_start_date - datetime.timedelta(days=30)
                 await cursor.execute('''
                 DELETE FROM spam_logs WHERE spam_time < ?
                 ''', (spam_cutoff.isoformat(),))
-                
-                spam_deleted = cursor.rowcount
 
                 # Eski staff_changes kayıtlarını temizle (28 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM staff_changes WHERE created_at < ?
                 ''', (cleanup_cutoff.isoformat(),))
-                staff_deleted = cursor.rowcount
 
                 # Eski staff_message_stats kayıtlarını temizle (28 gün öncesi)
                 try:
@@ -412,8 +405,6 @@ class WeeklyReports(commands.Cog):
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
                 ''', (presence_cutoff.isoformat(),))
-                
-                presence_deleted = cursor.rowcount
                 
                 await db.connection.commit()
                 
