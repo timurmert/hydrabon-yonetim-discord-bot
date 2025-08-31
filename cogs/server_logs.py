@@ -136,7 +136,7 @@ class ServerLogs(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         """Silinen mesajları loglar"""
-        if message.author.bot:
+        if message.author.bot and not message.channel.category_id in self.log_category_ids:
             return  # Bot mesajlarını loglama
             
         if not message.guild:
