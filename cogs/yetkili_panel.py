@@ -1010,6 +1010,14 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
                 ephemeral=True
             )
         
+        # Çift tıklamayı engelle: Butonu devre dışı bırak ve görünümü güncelle
+        button.disabled = True
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.edit_original_response(view=self)
+        except Exception:
+            pass
+
         # Duyurunun gönderileceği üyeleri topla
         guild = interaction.guild
         hedef_uyeler = set()
@@ -2896,7 +2904,7 @@ class YetkiliPanel(commands.Cog):
         
         # Temel istatistikleri hesapla
         total_members = guild.member_count
-        online_members = len([m for m in guild.members if m.status != discord.Status.offline and not m.bot])
+        online_members = len([m for m in guild.members if m.status != discord.Status.offline])
         total_channels = len(guild.channels)
         text_channels = len(guild.text_channels)
         voice_channels = len(guild.voice_channels)
@@ -3110,6 +3118,24 @@ class YetkiliPanel(commands.Cog):
             # Rol değişikliğini yap
             await hedef_uye.remove_roles(eski_rol, reason=f"Yetki Yükseltme: {sebep}")
             await hedef_uye.add_roles(yeni_rol, reason=f"Yetki Yükseltme: {sebep}")
+            # DB log: promoted
+            try:
+                db = await get_db()
+                await db.add_staff_change(
+                    guild_id=guild.id,
+                    user_id=hedef_uye.id,
+                    username=hedef_uye.name,
+                    action='promoted',
+                    actor_id=yetkili.id,
+                    actor_username=yetkili.name,
+                    old_role_id=eski_rol.id,
+                    old_role_name=eski_rol_ismi,
+                    new_role_id=yeni_rol.id,
+                    new_role_name=yeni_rol_ismi,
+                    reason=sebep
+                )
+            except Exception:
+                pass
             
             # Başarılı işlem bildirimi
             embed = discord.Embed(
@@ -3241,6 +3267,24 @@ class YetkiliPanel(commands.Cog):
             # Rol değişikliğini yap
             await hedef_uye.remove_roles(eski_rol, reason=f"Yetki Düşürme: {sebep}")
             await hedef_uye.add_roles(yeni_rol, reason=f"Yetki Düşürme: {sebep}")
+            # DB log: demoted
+            try:
+                db = await get_db()
+                await db.add_staff_change(
+                    guild_id=guild.id,
+                    user_id=hedef_uye.id,
+                    username=hedef_uye.name,
+                    action='demoted',
+                    actor_id=yetkili.id,
+                    actor_username=yetkili.name,
+                    old_role_id=eski_rol.id,
+                    old_role_name=eski_rol_ismi,
+                    new_role_id=yeni_rol.id,
+                    new_role_name=yeni_rol_ismi,
+                    reason=sebep
+                )
+            except Exception:
+                pass
             
             # Başarılı işlem bildirimi
             embed = discord.Embed(
@@ -3331,6 +3375,32 @@ class YetkiliPanel(commands.Cog):
                 return await interaction.followup.send("Verilecek rol sunucuda bulunamadı.", ephemeral=True)
 
             await hedef_uye.add_roles(verilecek_rol, reason=f"Yetkili Ekleme: {sebep}")
+            # DB log: added
+            try:
+                db = await get_db()
+                await db.add_staff_change(
+                    guild_id=guild.id,
+                    user_id=hedef_uye.id,
+                    username=hedef_uye.name,
+                    action='added',
+                    actor_id=ekleyen.id,
+                    actor_username=ekleyen.name,
+                    old_role_id=None,
+                    old_role_name=None,
+                    new_role_id=verilecek_rol.id,
+                    new_role_name=verilecek_rol.name,
+                    reason=sebep
+                )
+            except Exception:
+                pass
+
+            # ÜYE rolünü kaldır (ID: 1029089740022095973)
+            uye_rol = guild.get_role(1029089740022095973)
+            if uye_rol and uye_rol in hedef_uye.roles:
+                await hedef_uye.remove_roles(
+                    uye_rol,
+                    reason=f"Yetkili rolü verildiği için ÜYE rolü kaldırıldı - {ekleyen.name} tarafından"
+                )
 
             embed = discord.Embed(
                 title="✅ Yetkili Eklendi",
@@ -3372,6 +3442,30 @@ class YetkiliPanel(commands.Cog):
                 return await interaction.followup.send("Kullanıcının üzerinde yetkili rolü yok.", ephemeral=True)
 
             await hedef_uye.remove_roles(*mevcut_yetkili_roller, reason=f"Yetkili Çıkartma: {sebep}")
+            # DB log: removed (en yüksek mevcut yetkili rolünü eski olarak kaydet)
+            try:
+                top_role = None
+                for rid in reversed(YETKILI_HIYERARSI):
+                    r = guild.get_role(rid)
+                    if r in mevcut_yetkili_roller:
+                        top_role = r
+                        break
+                db = await get_db()
+                await db.add_staff_change(
+                    guild_id=guild.id,
+                    user_id=hedef_uye.id,
+                    username=hedef_uye.name,
+                    action='removed',
+                    actor_id=cikarani.id,
+                    actor_username=cikarani.name,
+                    old_role_id=top_role.id if top_role else None,
+                    old_role_name=top_role.name if top_role else None,
+                    new_role_id=None,
+                    new_role_name=None,
+                    reason=sebep
+                )
+            except Exception:
+                pass
             # Üye rolünü ekle
             uye_rol_id = 1029089740022095973
             uye_rol = guild.get_role(uye_rol_id)

@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.ext import tasks
 from discord.ui import View, Button, Select
 import aiosqlite
 import datetime
@@ -52,12 +53,38 @@ class BumpLogView(discord.ui.View):
         
         await self.cog.show_stats(interaction, "monthly")
 
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.secondary, emoji="◀️", row=2)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # YetkiliPanel cog'unu bul ve ana panele dön
+        panel_cog = interaction.client.get_cog("YetkiliPanel")
+        if panel_cog is None:
+            return await interaction.response.send_message("Yetkili panel modülü bulunamadı.", ephemeral=True)
+
+        # Bu bir bileşen etkileşimi; önce güncellemeyi defer et, sonra ana paneli düzenle
+        try:
+            await interaction.response.defer_update()
+        except Exception:
+            pass
+
+        try:
+            await panel_cog.show_main_panel(interaction)
+        except Exception as e:
+            # Her ihtimale karşı hata durumunda kullanıcıya bilgi ver
+            try:
+                await interaction.followup.send(f"Geri dönüş sırasında bir hata oluştu: {e}", ephemeral=True)
+            except Exception:
+                pass
+
 class BumpTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = None
         self.DISBOARD_BOT_ID = 302050872383242240
         self.BUMP_CHANNEL_ID = 1366027014154223719
+        self.YETKILI_SOHBET_CHANNEL_ID = 1362825644550914263
         self.YETKILI_ROLLERI = [
             1163918714081644554,  # STAJYER
             1200919832393154680,  # ASİSTAN
@@ -67,11 +94,20 @@ class BumpTracker(commands.Cog):
             1029089727061692522,  # YÖNETİM KURULU BAŞKANI
             1029089723110674463   # KURUCU
         ]
+        self.KURUCU_ROLE_ID = 1029089723110674463
+        self.GUILD_ID = 1029088146752815138
         self.turkey_tz = pytz.timezone('Europe/Istanbul')
+        self._last_bump_inactivity_notified_for_time = None  # ISO of last bump time we notified for (or 'NONE')
     
     async def cog_load(self):
         self.db = await get_db()
         await self.create_tables()
+        # Başlat: 12 saat bump yapılmadıysa uyarı kontrol task'ı
+        try:
+            if not self.bump_inactivity_task.is_running():
+                self.bump_inactivity_task.start()
+        except Exception:
+            pass
     
     async def create_tables(self):
         # Tablolar artık database.py'da oluşturuluyor
@@ -175,6 +211,12 @@ class BumpTracker(commands.Cog):
             
             await interaction.followup.send(embed=embed)
             
+            # Kurucu arka arkaya 2 bump kontrolü ve uyarı
+            try:
+                await self.check_consecutive_founder_bumps_and_notify(interaction.guild, user)
+            except Exception:
+                pass
+
         except Exception as e:
             print(f"Bump kaydetme hatası: {e}")
             await interaction.followup.send("Bump işlemi sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.", ephemeral=True)
@@ -307,6 +349,104 @@ class BumpTracker(commands.Cog):
         )
         
         await interaction.response.edit_message(embed=embed)
+
+    @tasks.loop(minutes=30)
+    async def bump_inactivity_task(self):
+        """Her 30 dakikada bir son 12 saatte bump var mı kontrol eder; yoksa yetkili-sohbet'e uyarı gönderir.
+        Aynı durum için tekrarlı spam'ı engellemek adına son bildirilen bump zamanını izler."""
+        try:
+            guild = self.bot.get_guild(self.GUILD_ID)
+            if not guild:
+                return
+            data = await self.db.get_total_bump_stats(guild.id)
+            latest = (data or {}).get('latest_bump') if data else None
+            latest_time_str = latest.get('time') if latest else None
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            # Eğer hiç bump yoksa da bir kere uyarı at ve tekrar etme
+            if latest_time_str:
+                try:
+                    latest_dt = datetime.datetime.fromisoformat(str(latest_time_str).replace('Z', '+00:00'))
+                    if latest_dt.tzinfo is None:
+                        latest_dt = latest_dt.replace(tzinfo=datetime.timezone.utc)
+                except Exception:
+                    return
+                delta_hours = (now_utc - latest_dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600.0
+                if delta_hours >= 12:
+                    key = latest_time_str
+                    if self._last_bump_inactivity_notified_for_time != key:
+                        ch = guild.get_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                        if not ch:
+                            try:
+                                ch = await self.bot.fetch_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                            except Exception:
+                                ch = None
+                        if ch:
+                            try:
+                                await ch.send("⚠️ Son 12 saat içinde herhangi bir bump yapılmadı! Lütfen <#1366027014154223719> kanalını takip edip '/bump' komutunu zamanında kullanın! ||@everyone||")
+                                self._last_bump_inactivity_notified_for_time = key
+                            except Exception:
+                                pass
+            else:
+                # hiç bump yok - bir kere bildir
+                if self._last_bump_inactivity_notified_for_time != 'NONE':
+                    ch = guild.get_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                    if ch:
+                        try:
+                            await ch.send("⚠️ Henüz hiç bump geçmişi bulunamadı. Lütfen <#1366027014154223719> kanalında bump başlatın.")
+                            self._last_bump_inactivity_notified_for_time = 'NONE'
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    @bump_inactivity_task.before_loop
+    async def before_bump_inactivity_task(self):
+        try:
+            await self.bot.wait_until_ready()
+        except Exception:
+            pass
+
+    async def check_consecutive_founder_bumps_and_notify(self, guild: discord.Guild, user: discord.Member):
+        """Kurucu aynı kişi üst üste bump yaparsa yetkili-sohbet'e hatırlatma gönderir.
+        Yalnızca ikinci ardışık bump'ta tetiklenir (üçüncü ve sonrasında spam engellenir)."""
+        # Kullanıcı kurucu mu?
+        if not any(role.id == self.KURUCU_ROLE_ID for role in user.roles):
+            return
+        # Son 3 bump kullanıcısını çek
+        try:
+            async with self.db.connection.cursor() as cursor:
+                await cursor.execute('''
+                SELECT user_id FROM bump_logs
+                WHERE guild_id = ?
+                ORDER BY bump_time DESC
+                LIMIT 3
+                ''', (guild.id,))
+                rows = await cursor.fetchall()
+                user_ids = [r[0] for r in rows]
+        except Exception:
+            return
+        if len(user_ids) < 2:
+            return
+        # Son iki bump aynı kurucu mu?
+        if user_ids[0] == user.id and user_ids[1] == user.id:
+            # Üçüncü de aynıysa (>=3), zaten uyarı atılmış kabul edip spam yapma
+            if len(user_ids) >= 3 and user_ids[2] == user.id:
+                return
+            # Uyarıyı gönder
+            channel = guild.get_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                except Exception:
+                    channel = None
+            if channel:
+                text = (
+                    f"⚠️ **Dikkat:** '/bump' komutu **Kurucu** tarafından iki kez arka arkaya kullanıldı. **Lütfen <#1366027014154223719> kanalını takip ediniz, görevinizi aksatmayınız.**"
+                )
+                try:
+                    await channel.send(text)
+                except Exception:
+                    pass
 
 async def setup(bot):
     await bot.add_cog(BumpTracker(bot)) 

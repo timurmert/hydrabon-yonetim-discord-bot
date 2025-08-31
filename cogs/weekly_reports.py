@@ -375,30 +375,36 @@ class WeeklyReports(commands.Cog):
                 DELETE FROM member_logs WHERE timestamp < ?
                 ''', (cleanup_cutoff.isoformat(),))
                 
-                member_deleted = cursor.rowcount
-                
                 # Eski bump loglarını temizle (60 gün öncesi)
                 bump_cutoff = report_start_date - datetime.timedelta(days=60)
                 await cursor.execute('''
                 DELETE FROM bump_logs WHERE bump_time < ?
                 ''', (bump_cutoff.isoformat(),))
                 
-                bump_deleted = cursor.rowcount
-                
                 # Eski spam loglarını temizle (30 gün öncesi)  
                 spam_cutoff = report_start_date - datetime.timedelta(days=30)
                 await cursor.execute('''
                 DELETE FROM spam_logs WHERE spam_time < ?
                 ''', (spam_cutoff.isoformat(),))
-                
-                spam_deleted = cursor.rowcount
+
+                # Eski staff_changes kayıtlarını temizle (28 gün öncesi)
+                await cursor.execute('''
+                DELETE FROM staff_changes WHERE created_at < ?
+                ''', (cleanup_cutoff.isoformat(),))
+
+                # Eski staff_message_stats kayıtlarını temizle (28 gün öncesi)
+                try:
+                    cutoff_date_str = cleanup_cutoff.date().isoformat()
+                    await cursor.execute('''
+                    DELETE FROM staff_message_stats WHERE message_date < ?
+                    ''', (cutoff_date_str,))
+                except Exception:
+                    pass
 
                 # Eski presence snapshot'larını temizle (14 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
                 ''', (presence_cutoff.isoformat(),))
-                
-                presence_deleted = cursor.rowcount
                 
                 await db.connection.commit()
                 
@@ -482,6 +488,114 @@ class WeeklyReports(commands.Cog):
                     name="📈 Bump İstatistikleri",
                     value="Bu hafta bump aktivitesi tespit edilmedi.",
                     inline=True
+                )
+            
+            # === YETKİLİ KADRO DEĞİŞİKLİKLERİ ===
+            try:
+                staff_stats = await db.get_staff_change_stats(guild.id, start_date, end_date)
+                staff_changes = await db.get_staff_changes_by_period(guild.id, start_date, end_date)
+                total_events = sum(staff_stats.values())
+                if total_events > 0:
+                    lines = []
+                    # Özet
+                    lines.append(f"Toplam: {total_events} işlem")
+                    lines.append(f"• Yeni Gelen: {staff_stats.get('added', 0)}")
+                    lines.append(f"• Yükselen: {staff_stats.get('promoted', 0)}")
+                    lines.append(f"• Düşen: {staff_stats.get('demoted', 0)}")
+                    lines.append(f"• Görevden Alınan: {staff_stats.get('removed', 0)}")
+                    # Detaylı liste (maks 10 satır)
+                    if staff_changes:
+                        turkey_tz = self.turkey_tz
+                        detail_lines = []
+                        action_map = {
+                            'added': '➕ Eklendi',
+                            'removed': '➖ Çıkartıldı',
+                            'promoted': '⬆️ Yükseltildi',
+                            'demoted': '⬇️ Düşürüldü'
+                        }
+                        for ch in staff_changes[:10]:
+                            user_disp = f"<@{ch['user_id']}>"
+                            role_from = ch['old_role_name'] or (f"<@&{ch['old_role_id']}>" if ch['old_role_id'] else '-')
+                            role_to = ch['new_role_name'] or (f"<@&{ch['new_role_id']}>" if ch['new_role_id'] else '-')
+                            reason = ch['reason'] or '-'
+                            detail_lines.append(
+                                f"{user_disp}\n"
+                                f"└ {role_from} → {role_to}\n"
+                                f"└ Sebep: {reason}"
+                            )
+                        lines.append("\n".join(detail_lines))
+                    embed.add_field(
+                        name="🛡️ Yetkili Kadro Değişiklikleri",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="🛡️ Yetkili Kadro Değişiklikleri",
+                        value="Bu hafta yetkili kadrosunda değişiklik yok.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="🛡️ Yetkili Kadro Değişiklikleri",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === TOP 10 AKTİF YETKİLİ (Mesaj) ===
+            try:
+                # Üst yönetim hariç tutacağımız rol ID'leri
+                excluded_role_ids = {
+                    1029089723110674463,  # KURUCU
+                    1029089727061692522,  # YK BAŞKANI
+                    1029089731314720798,  # YK ÜYELERİ
+                }
+                # Veritabanından adayları al (fazla getirip filtreleyeceğiz)
+                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=20)
+                # Filtre: yetkili olmalı ve excluded rollerden hiçbiri olmamalı
+                try:
+                    from cogs.yetkili_panel import YETKILI_HIYERARSI
+                except Exception:
+                    YETKILI_HIYERARSI = []
+                def is_staff(member):
+                    user_role_ids = {r.id for r in member.roles}
+                    return any(rid in user_role_ids for rid in YETKILI_HIYERARSI)
+                def is_excluded(member):
+                    user_role_ids = {r.id for r in member.roles}
+                    return any(rid in user_role_ids for rid in excluded_role_ids)
+                results = []
+                for row in top_candidates:
+                    member = guild.get_member(row['user_id'])
+                    if not member:
+                        continue
+                    if not is_staff(member):
+                        continue
+                    if is_excluded(member):
+                        continue
+                    results.append((member, row['total_messages']))
+                # Sırala ve top 10 al
+                results.sort(key=lambda x: x[1], reverse=True)
+                top10 = results[:10]
+                if top10:
+                    lines = []
+                    for i, (member, count) in enumerate(top10, 1):
+                        lines.append(f"**{i}.** {member.mention} - {count} mesaj")
+                    embed.add_field(
+                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        value="\n".join(lines),
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        value="Bu hafta uygun kriterlerde mesaj aktivitesi bulunamadı.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="💬 Haftalık En Aktif 10 Yetkili",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
                 )
             
             # Son Aktiviteler bölümü kaldırıldı

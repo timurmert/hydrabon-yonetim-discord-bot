@@ -703,6 +703,25 @@ class RoleSelectMenu(discord.ui.Select):
             uye_role = interaction.guild.get_role(1029089740022095973)
             if uye_role and uye_role in self.user.roles:
                 await self.user.remove_roles(uye_role, reason=f"Yetkili rolü verildiği için ÜYE rolü kaldırıldı - {interaction.user.name} tarafından")
+
+            # DB log: added via application approval
+            try:
+                db = await get_db()
+                await db.add_staff_change(
+                    guild_id=interaction.guild.id,
+                    user_id=self.user.id,
+                    username=self.user.name,
+                    action='added',
+                    actor_id=interaction.user.id,
+                    actor_username=interaction.user.name,
+                    old_role_id=None,
+                    old_role_name=None,
+                    new_role_id=role.id,
+                    new_role_name=role.name,
+                    reason=f"Başvuru onayı (ID: {self.application_id})"
+                )
+            except Exception as _:
+                pass
             
             # Yetkili-sohbet kanalına hoş geldin mesajı gönder
             yetkili_sohbet_channel = interaction.guild.get_channel(1362825644550914263)

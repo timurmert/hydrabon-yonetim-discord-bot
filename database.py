@@ -214,6 +214,57 @@ class Database:
             ON user_notes(created_by, created_at)
             ''')
             
+            # Yetkili değişiklikleri tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                action TEXT NOT NULL, -- 'added', 'removed', 'promoted', 'demoted'
+                old_role_id INTEGER,
+                old_role_name TEXT,
+                new_role_id INTEGER,
+                new_role_name TEXT,
+                reason TEXT,
+                actor_id INTEGER NOT NULL,
+                actor_username TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Staff changes için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_changes_guild_time
+            ON staff_changes(guild_id, created_at)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_changes_action
+            ON staff_changes(action, created_at)
+            ''')
+
+            # Yetkili mesaj istatistikleri (günlük toplu)
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_message_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                message_date TEXT NOT NULL, -- ISO YYYY-MM-DD (UTC)
+                message_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            await cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_staff_msg_unique
+            ON staff_message_stats(guild_id, user_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_msg_guild_date
+            ON staff_message_stats(guild_id, message_date)
+            ''')
+            
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
             
@@ -958,6 +1009,10 @@ class Database:
             await cursor.execute("SELECT COUNT(*) FROM user_notes")
             total_user_notes = (await cursor.fetchone())[0]
             
+            # Toplam staff changes sayısı
+            await cursor.execute("SELECT COUNT(*) FROM staff_changes")
+            total_staff_changes = (await cursor.fetchone())[0]
+            
             # Tahmini boyutlar (byte cinsinden)
             estimated_bump_size = total_bump_logs * 104  # ~104 byte per bump
             estimated_app_size = total_applications * 2048  # ~2KB per application
@@ -965,8 +1020,9 @@ class Database:
             estimated_spam_size = total_spam_logs * 256  # ~256 byte per spam log
             estimated_member_size = total_member_logs * 128  # ~128 byte per member log
             estimated_notes_size = total_user_notes * 384  # ~384 byte per user note (ortalama not uzunluğu)
+            estimated_staff_changes_size = total_staff_changes * 320  # ~320 byte per staff change (tahmini)
             
-            total_estimated = estimated_bump_size + estimated_app_size + estimated_msg_size + estimated_spam_size + estimated_member_size + estimated_notes_size
+            total_estimated = estimated_bump_size + estimated_app_size + estimated_msg_size + estimated_spam_size + estimated_member_size + estimated_notes_size + estimated_staff_changes_size
             
             return {
                 'bump_logs_count': total_bump_logs,
@@ -975,9 +1031,11 @@ class Database:
                 'spam_logs_count': total_spam_logs,
                 'member_logs_count': total_member_logs,
                 'user_notes_count': total_user_notes,
+                'staff_changes_count': total_staff_changes,
                 'estimated_bump_size_mb': round(estimated_bump_size / (1024 * 1024), 2),
                 'estimated_spam_size_mb': round(estimated_spam_size / (1024 * 1024), 2),
                 'estimated_member_size_mb': round(estimated_member_size / (1024 * 1024), 2),
+                'estimated_staff_changes_size_mb': round(estimated_staff_changes_size / (1024 * 1024), 2),
                 'estimated_total_size_mb': round(total_estimated / (1024 * 1024), 2),
                 'estimated_size_human': self._format_bytes(total_estimated)
             }
@@ -1167,6 +1225,72 @@ class Database:
                 'net_change': net_change,
                 # Son aktiviteler kaldırıldı
             }
+
+    async def add_staff_change(self, guild_id: int, user_id: int, username: str, action: str,
+                               actor_id: int, actor_username: str,
+                               old_role_id: int = None, old_role_name: str = None,
+                               new_role_id: int = None, new_role_name: str = None,
+                               reason: str = None):
+        """Yetkili kadrosu değişikliğini kaydeder."""
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO staff_changes (
+                guild_id, user_id, username, action,
+                old_role_id, old_role_name, new_role_id, new_role_name,
+                reason, actor_id, actor_username, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, action,
+                  old_role_id, old_role_name, new_role_id, new_role_name,
+                  reason, actor_id, actor_username, current_time))
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def get_staff_changes_by_period(self, guild_id: int, start_date, end_date):
+        """Belirli tarih aralığındaki yetkili değişikliklerini döndürür."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, action,
+                   old_role_id, old_role_name, new_role_id, new_role_name,
+                   reason, actor_id, actor_username, created_at
+            FROM staff_changes
+            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
+            ORDER BY created_at ASC
+            ''', (guild_id, start_date.isoformat(), end_date.isoformat()))
+            rows = await cursor.fetchall()
+            changes = []
+            for row in rows:
+                changes.append({
+                    'id': row[0],
+                    'guild_id': row[1],
+                    'user_id': row[2],
+                    'username': row[3],
+                    'action': row[4],
+                    'old_role_id': row[5],
+                    'old_role_name': row[6],
+                    'new_role_id': row[7],
+                    'new_role_name': row[8],
+                    'reason': row[9],
+                    'actor_id': row[10],
+                    'actor_username': row[11],
+                    'created_at': row[12],
+                })
+            return changes
+
+    async def get_staff_change_stats(self, guild_id: int, start_date, end_date):
+        """Belirli tarih aralığında action'a göre sayıları döndürür."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT action, COUNT(*) as cnt
+            FROM staff_changes
+            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
+            GROUP BY action
+            ''', (guild_id, start_date.isoformat(), end_date.isoformat()))
+            rows = await cursor.fetchall()
+            stats = { 'added': 0, 'removed': 0, 'promoted': 0, 'demoted': 0 }
+            for row in rows:
+                stats[row[0]] = row[1]
+            return stats
     
     async def add_user_note(self, user_id, username, discriminator, note_content, created_by, created_by_username, guild_id):
         """Kullanıcı hakkında not ekler"""
@@ -1366,6 +1490,53 @@ class Database:
                 'top_admin_count': top_admin_count,
                 'weekly_notes': weekly_notes
             }
+
+    async def increment_staff_message(self, guild_id: int, user_id: int, username: str, created_at_iso: str):
+        """Yetkili günlük mesaj sayısını 1 artırır (created_at_iso UTC ISO)."""
+        # message_date (UTC gün) çıkar
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(created_at_iso.replace('Z', '+00:00')) if 'T' in created_at_iso else datetime.now(timezone.utc)
+            dt_utc = dt.astimezone(timezone.utc)
+            message_date = dt_utc.strftime('%Y-%m-%d')
+        except Exception:
+            from datetime import datetime, timezone
+            message_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        async with self.connection.cursor() as cursor:
+            # Upsert
+            await cursor.execute('''
+            INSERT INTO staff_message_stats (guild_id, user_id, username, message_date, message_count)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(guild_id, user_id, message_date) DO UPDATE SET
+              username = excluded.username,
+              message_count = message_count + 1
+            ''', (guild_id, user_id, username, message_date))
+            await self.connection.commit()
+
+    async def get_top_staff_message_stats(self, guild_id: int, start_date, end_date, exclude_role_ids=None, resolver=None, limit: int = 10):
+        """Belirli aralıkta en çok mesaj atan yetkilileri döndürür.
+        exclude_role_ids/resolver parametreleri kullanılmaz; filtre rapor tarafında yapılır.
+        """
+        start_str = start_date.date().isoformat()
+        end_str = end_date.date().isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, MAX(username) as username, SUM(message_count) as total_messages
+            FROM staff_message_stats
+            WHERE guild_id = ? AND message_date >= ? AND message_date < ?
+            GROUP BY user_id
+            ORDER BY total_messages DESC
+            LIMIT ?
+            ''', (guild_id, start_str, end_str, limit * 3))  # Fazla getir, raporda rol filtrele
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                results.append({
+                    'user_id': row[0],
+                    'username': row[1],
+                    'total_messages': row[2]
+                })
+            return results
 
 
 
