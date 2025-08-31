@@ -13,8 +13,12 @@ class ServerLogs(commands.Cog):
         self.role_position_updates = {}  # Guild ID: {timestamp: [(role, old_pos, new_pos)]}
         self.position_update_delay = 2  # 2 saniye bekle
         self.log_channel = None
-        self.target_guild_id = 1029088146752815138  # İzlenmeyecek sunucu ID'si
-        self.alert_channel_id = 1362825644550914263  # Uyarı gönderilecek kanal ID'si
+        self.target_guild_id = 1029088146752815138  # İzlenmeyecek sunucu ID'si (Davet korumasında HydRaboN hariç tutmak için)
+        self.alert_channel_id = 1362825644550914263  # Uyarı gönderilecek kanal ID'si (Yetkili sohbet)
+        # Log kategorileri (mesaj silme cezaları bu kategorilerde tetiklenir)
+        self.log_category_ids = {1217523779471937547, 1281779525658742784}
+        # YK sohbet kanal ID'si (uyarı buraya gidecek)
+        self.yk_sohbet_channel_id = 1362825668965957845
         
         # Yetkili rol ID'leri
         self.yetkili_rolleri = {
@@ -61,7 +65,7 @@ class ServerLogs(commands.Cog):
         # Fire-and-forget: Diğer işlemleri bloklamaz
         asyncio.create_task(self.safe_send(channel, embed=embed))
 
-    async def safe_send(self, channel, content=None, embed=None, max_retries=3):
+    async def safe_send(self, channel, content=None, embed=None, allowed_mentions=None, max_retries=3):
         """Güvenli mesaj gönderme fonksiyonu - Retry sistemi ile"""
         if not channel:
             return None
@@ -69,11 +73,11 @@ class ServerLogs(commands.Cog):
         for attempt in range(max_retries):
             try:
                 if content and embed:
-                    return await channel.send(content=content, embed=embed)
+                    return await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
                 elif content:
-                    return await channel.send(content=content)
+                    return await channel.send(content=content, allowed_mentions=allowed_mentions)
                 elif embed:
-                    return await channel.send(embed=embed)
+                    return await channel.send(embed=embed, allowed_mentions=allowed_mentions)
                 else:
                     return None
                     
@@ -174,6 +178,121 @@ class ServerLogs(commands.Cog):
         embed.set_thumbnail(url=message.author.display_avatar.url)
         
         await self.send_log_embed(message.guild, embed)
+
+        # Eğer silinen mesaj belirlenen log kategorilerinden birinde ise, silen kişiyi tespit edip işlem yap
+        try:
+            category_id = getattr(message.channel, 'category_id', None)
+        except Exception:
+            category_id = None
+
+        if category_id and category_id in self.log_category_ids:
+            deleter_member = None
+            is_kurucu = False
+            try:
+                # Audit log'tan mesajı silen moderatörü bul (kanal ve hedef kullanıcı eşleşmeli)
+                async for entry in message.guild.audit_logs(action=discord.AuditLogAction.message_delete, limit=6):
+                    # Hedef kullanıcı (mesaj sahibi) eşleşmesi (opsiyonel ama doğruluk için)
+                    if getattr(entry, 'target', None) and hasattr(entry.target, 'id'):
+                        if entry.target.id != message.author.id:
+                            continue
+                    # Kanal eşleşmesi
+                    extra = getattr(entry, 'extra', None)
+                    if extra and getattr(extra, 'channel', None):
+                        if extra.channel.id != message.channel.id:
+                            continue
+                    # Zaman penceresi (son 30 sn)
+                    time_diff = (datetime.datetime.now(datetime.timezone.utc) - entry.created_at).total_seconds()
+                    if time_diff > 30:
+                        continue
+                    # Silen kullanıcıyı üye olarak al
+                    if entry.user:
+                        deleter_member = entry.user if isinstance(entry.user, discord.Member) else message.guild.get_member(entry.user.id)
+                    break
+            except (discord.Forbidden, discord.HTTPException):
+                deleter_member = None
+
+            # Rollerini kaldır (kurucu hariç), bot ve None durumlarını atla
+            if deleter_member and not deleter_member.bot:
+                kurucu_role_id = self.yetkili_rolleri.get("KURUCU")
+                is_kurucu = any(role.id == kurucu_role_id for role in deleter_member.roles) if kurucu_role_id else False
+                if not is_kurucu:
+                    roles_to_remove = [
+                        role for role in deleter_member.roles
+                        if role != message.guild.default_role and (not kurucu_role_id or role.id != kurucu_role_id)
+                    ]
+                    if roles_to_remove:
+                        try:
+                            await deleter_member.remove_roles(*roles_to_remove, reason="Log kategorisinde mesaj silme tespit edildi")
+                        except (discord.Forbidden, discord.HTTPException):
+                            pass
+
+            # YK-sohbet kanalına @everyone ile uyarı gönder
+            warn_channel = self.bot.get_channel(self.yk_sohbet_channel_id) or message.guild.get_channel(self.yk_sohbet_channel_id)
+            if not is_kurucu and warn_channel:
+                warn_text = "@everyone DİKKAT: Log kategorilerinden birinde mesaj silme tespit edildi."
+                if deleter_member:
+                    warn_text += f" İşlemi yapan: {deleter_member.mention} ({deleter_member.name})."
+
+                # Silinen mesajın özet embed'i (özellikle log embed'leri için)
+                deleted_summary = discord.Embed(
+                    title="Silinen Log Mesajı",
+                    description=f"**Kanal:** {message.channel.mention} ({message.channel.name})\n"
+                                f"**Mesaj ID:** {message.id}",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(self.turkey_tz)
+                )
+
+                # Metin içeriği varsa ekle
+                if message.content:
+                    text_content = message.content
+                    if len(text_content) > 1000:
+                        text_content = text_content[:997] + "..."
+                    deleted_summary.add_field(name="Metin İçeriği", value=f"```{text_content}```", inline=False)
+
+                # Embed içeriği varsa ilk embed üzerinden özetle
+                if message.embeds:
+                    orig = message.embeds[0]
+                    orig_title = getattr(orig, 'title', None)
+                    orig_desc = getattr(orig, 'description', None)
+
+                    if orig_title:
+                        if len(orig_title) > 1024:
+                            orig_title = orig_title[:1021] + "..."
+                        deleted_summary.add_field(name="Log Başlık", value=orig_title, inline=False)
+
+                    if orig_desc:
+                        if len(orig_desc) > 1024:
+                            orig_desc = orig_desc[:1021] + "..."
+                        deleted_summary.add_field(name="Log Açıklama", value=orig_desc, inline=False)
+
+                    # Embed alanlarından ilk 5 tanesini ekle
+                    try:
+                        fields = getattr(orig, 'fields', []) or []
+                        for idx, fld in enumerate(fields[:5]):
+                            fname = getattr(fld, 'name', f"Alan {idx+1}") or f"Alan {idx+1}"
+                            fval = getattr(fld, 'value', "") or ""
+                            if len(fname) > 256:
+                                fname = fname[:253] + "..."
+                            if len(fval) > 1024:
+                                fval = fval[:1021] + "..."
+                            deleted_summary.add_field(name=fname, value=fval, inline=False)
+                        if len(fields) > 5:
+                            deleted_summary.add_field(name="Not", value=f"Toplam {len(fields)} alan vardı, ilk 5'i gösterildi.", inline=False)
+                    except Exception:
+                        pass
+
+                    # Çoklu embed bilgisi
+                    if len(message.embeds) > 1:
+                        deleted_summary.add_field(name="Not", value=f"Bu mesajda {len(message.embeds)} embed vardı, ilki özetlendi.", inline=False)
+
+                deleted_summary.set_footer(text=f"Silinen mesajı özetler")
+
+                await self.safe_send(
+                    warn_channel,
+                    content=warn_text,
+                    embed=deleted_summary,
+                    allowed_mentions=discord.AllowedMentions(everyone=True)
+                )
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
