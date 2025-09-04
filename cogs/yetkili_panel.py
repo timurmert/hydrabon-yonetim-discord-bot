@@ -1012,11 +1012,16 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         
         # Çift tıklamayı engelle: Butonu devre dışı bırak ve görünümü güncelle
         button.disabled = True
-        await interaction.response.defer(ephemeral=True)
         try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(view=self)
         except Exception as e:
-            await interaction.response.send_message(f"Duyuru gönderim sırasında hata: {str(e)}", ephemeral=True)
+            try:
+                await interaction.followup.send(f"Duyuru gönderim sırasında hata: {str(e)}", ephemeral=True)
+            except Exception:
+                pass
+            return
 
         # Duyurunun gönderileceği üyeleri topla
         guild = interaction.guild
@@ -1030,8 +1035,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
                 for uye in rol.members:
                     hedef_uyeler.add(uye)
         
-        # İşlem başlıyor bilgisi
-        await interaction.response.defer(ephemeral=True)
+        # İşlem başlıyor bilgisi (daha önce defer edildi, tekrar etmeye gerek yok)
         
         # Duyuru mesajını oluştur
         embed = discord.Embed(
