@@ -1015,7 +1015,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         try:
             await interaction.edit_original_response(view=self)
-        except Exception:
+        except Exception as e:
             print(f"Duyuru gönderim hatası: {e}")
 
         # Duyurunun gönderileceği üyeleri topla
