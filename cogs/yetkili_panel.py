@@ -18,6 +18,7 @@ YETKILI_ROLLERI = {
     "ASİSTAN": 1200919832393154680,
     "MODERATÖR": 1163918107501412493,
     "ADMİN": 1163918130192580608,
+    "YÖNETİM KURULU ADAYLARI": 1412843482980290711,
     "YÖNETİM KURULU ÜYELERİ": 1029089731314720798,
     "YÖNETİM KURULU BAŞKANI": 1029089727061692522,
     "KURUCU": 1029089723110674463
@@ -29,6 +30,7 @@ YETKILI_HIYERARSI = [
     1200919832393154680,  # ASİSTAN
     1163918107501412493,  # MODERATÖR
     1163918130192580608,  # ADMİN
+    1412843482980290711,  # YÖNETİM KURULU ADAYLARI
     1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
     1029089727061692522,  # YÖNETİM KURULU BAŞKANI
     1029089723110674463   # KURUCU
@@ -36,6 +38,7 @@ YETKILI_HIYERARSI = [
 
 # "Yetkili İşlemleri" bölümüne erişebilecek üst yönetim rolleri
 MANAGEMENT_ALLOWED_ROLE_IDS = [
+    YETKILI_ROLLERI["YÖNETİM KURULU ADAYLARI"],
     YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
     YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
     YETKILI_ROLLERI["KURUCU"],
@@ -1012,11 +1015,16 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         
         # Çift tıklamayı engelle: Butonu devre dışı bırak ve görünümü güncelle
         button.disabled = True
-        await interaction.response.defer(ephemeral=True)
         try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(view=self)
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                await interaction.followup.send(f"Duyuru gönderim sırasında hata: {str(e)}", ephemeral=True)
+            except Exception:
+                pass
+            return
 
         # Duyurunun gönderileceği üyeleri topla
         guild = interaction.guild
@@ -1030,8 +1038,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
                 for uye in rol.members:
                     hedef_uyeler.add(uye)
         
-        # İşlem başlıyor bilgisi
-        await interaction.response.defer(ephemeral=True)
+        # İşlem başlıyor bilgisi (daha önce defer edildi, tekrar etmeye gerek yok)
         
         # Duyuru mesajını oluştur
         embed = discord.Embed(
@@ -3845,6 +3852,7 @@ class SistemDurumuView(discord.ui.View):
                 old_cache_size = len(extra_features_cog.user_message_cache)
                 extra_features_cog.user_message_cache.clear()
                 
+                # Kullanıcıya başarı mesajı gönder
                 embed = discord.Embed(
                     title="✅ Cache Temizlendi",
                     description=f"**Temizlenen Kullanıcı:** {old_cache_size:,}\n"
@@ -3852,10 +3860,62 @@ class SistemDurumuView(discord.ui.View):
                     color=discord.Color.green()
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
+                
+                # Log kanalına işlem bilgisini gönder
+                await self.send_cache_cleanup_log(interaction, old_cache_size)
             else:
                 await interaction.response.send_message("❌ ExtraFeatures modülü bulunamadı!", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Cache temizleme hatası: {e}", ephemeral=True)
+    
+    async def send_cache_cleanup_log(self, interaction: discord.Interaction, old_cache_size: int):
+        """Cache temizliği işlemini log kanalına gönderir"""
+        try:
+            # Log kanalını al
+            log_channel = self.cog.bot.get_channel(1365954141880455238)
+            if not log_channel:
+                print("Cache temizliği log kanalı bulunamadı!")
+                return
+            
+            # Türkiye saati için timezone
+            turkey_tz = pytz.timezone('Europe/Istanbul')
+            current_time = datetime.datetime.now(turkey_tz)
+            
+            # Log embed'i oluştur
+            log_embed = discord.Embed(
+                title="🧹 Cache Temizliği İşlemi",
+                description=f"Sistem cache'i manuel olarak temizlendi.",
+                color=discord.Color.blue(),
+                timestamp=current_time
+            )
+            
+            log_embed.add_field(
+                name="⏰ İşlem Bilgileri",
+                value=f"{interaction.user.mention} ({interaction.user.name})\n"
+                      f"**ID:** {interaction.user.id}\n"
+                      f"**Tarih:** {current_time.strftime('%d.%m.%Y %H:%M:%S')} UTC+3",
+                inline=False
+            )
+            
+            log_embed.add_field(
+                name="📊 Temizlik Detayları",
+                value=f"**Temizlenen Cache Kullanıcı Sayısı:** {old_cache_size:,}\n"
+                      f"**Yeni Durum:** 0 kullanıcı\n"
+                      f"**İşlem Türü:** Manuel Cache Temizliği",
+                inline=False
+            )
+            
+            log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            log_embed.set_footer(
+                text=f"{interaction.guild.name} • Sistem Yönetimi",
+                icon_url=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Log mesajını gönder
+            await log_channel.send(embed=log_embed)
+            
+        except Exception as e:
+            print(f"Cache temizliği log gönderme hatası: {e}")
     
     @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):

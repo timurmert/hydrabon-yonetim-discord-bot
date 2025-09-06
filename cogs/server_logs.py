@@ -27,6 +27,7 @@ class ServerLogs(commands.Cog):
             "ASİSTAN": 1200919832393154680,
             "MODERATÖR": 1163918107501412493,
             "ADMİN": 1163918130192580608,
+            "YÖNETİM KURULU ADAYLARI": 1412843482980290711,
             "YÖNETİM KURULU ÜYELERİ": 1029089731314720798,
             "YÖNETİM KURULU BAŞKANI": 1029089727061692522,
             "KURUCU": 1029089723110674463
@@ -136,7 +137,7 @@ class ServerLogs(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         """Silinen mesajları loglar"""
-        if message.author.bot:
+        if message.author.bot and not message.channel.category_id in self.log_category_ids:
             return  # Bot mesajlarını loglama
             
         if not message.guild:

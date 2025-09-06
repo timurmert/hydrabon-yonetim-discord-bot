@@ -28,12 +28,12 @@ class YetkiliAlim(commands.Cog):
             await self.handle_application_button(interaction)
         elif custom_id.startswith('approve_'):
             # Yetkili rolü kontrolü
-            allowed_role_ids = [1029089723110674463, 1029089727061692522, 1029089731314720798]  # KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ
+            allowed_role_ids = [1029089723110674463, 1029089727061692522, 1029089731314720798, 1412843482980290711]  # KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ, YÖNETİM KURULU ADAYLARI
             user_has_permission = interaction.user.guild_permissions.administrator or any(role.id in allowed_role_ids for role in interaction.user.roles)
             
             if not user_has_permission:
                 return await interaction.response.send_message(
-                    "Bu işlemi gerçekleştirmek için gerekli yetkiye sahip değilsiniz. Bu işlem için KURUCU, YÖNETİM KURULU BAŞKANI veya YÖNETİM KURULU ÜYELERİ rollerine sahip olmanız gerekiyor.", 
+                    "Bu işlemi gerçekleştirmek için gerekli yetkiye sahip değilsiniz. Bu işlem için KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ veya YÖNETİM KURULU ADAYLARI rollerine sahip olmanız gerekiyor.", 
                     ephemeral=True
                 )
             
@@ -66,12 +66,12 @@ class YetkiliAlim(commands.Cog):
             
         elif custom_id.startswith('reject_'):
             # Yetkili rolü kontrolü
-            allowed_role_ids = [1029089723110674463, 1029089727061692522, 1029089731314720798]  # KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ
+            allowed_role_ids = [1029089723110674463, 1029089727061692522, 1029089731314720798, 1412843482980290711]  # KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ, YÖNETİM KURULU ADAYLARI
             user_has_permission = interaction.user.guild_permissions.administrator or any(role.id in allowed_role_ids for role in interaction.user.roles)
             
             if not user_has_permission:
                 return await interaction.response.send_message(
-                    "Bu işlemi gerçekleştirmek için gerekli yetkiye sahip değilsiniz. Bu işlem için KURUCU, YÖNETİM KURULU BAŞKANI veya YÖNETİM KURULU ÜYELERİ rollerine sahip olmanız gerekiyor.", 
+                    "Bu işlemi gerçekleştirmek için gerekli yetkiye sahip değilsiniz. Bu işlem için KURUCU, YÖNETİM KURULU BAŞKANI, YÖNETİM KURULU ÜYELERİ veya YÖNETİM KURULU ADAYLARI rollerine sahip olmanız gerekiyor.", 
                     ephemeral=True
                 )
             
@@ -650,10 +650,10 @@ class RoleSelectMenu(discord.ui.Select):
         
         # İstenen rol ID'leri
         allowed_role_ids = [
-            1163918714081644554,  # Rol 1
-            1200919832393154680,  # Rol 2
-            1163918107501412493,  # Rol 3
-            1163918130192580608   # Rol 4
+            1163918714081644554,  # STAJYER
+            1200919832393154680,  # ASİSTAN
+            1163918107501412493,  # MODERATÖR
+            1163918130192580608  # ADMİN
         ]
         
         # Eğer context mevcut değilse, henüz roller yüklenemez

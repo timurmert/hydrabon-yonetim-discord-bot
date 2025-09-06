@@ -320,9 +320,7 @@ class ExtraFeatures(commands.Cog):
                     try:
                         ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
                         ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
-                        warn = await message.channel.send(
-                            f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
-                        await warn.delete(delay=6)
+                        await message.channel.send(f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
                     except Exception:
                         pass
 
