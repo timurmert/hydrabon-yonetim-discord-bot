@@ -3852,6 +3852,7 @@ class SistemDurumuView(discord.ui.View):
                 old_cache_size = len(extra_features_cog.user_message_cache)
                 extra_features_cog.user_message_cache.clear()
                 
+                # Kullanıcıya başarı mesajı gönder
                 embed = discord.Embed(
                     title="✅ Cache Temizlendi",
                     description=f"**Temizlenen Kullanıcı:** {old_cache_size:,}\n"
@@ -3859,10 +3860,62 @@ class SistemDurumuView(discord.ui.View):
                     color=discord.Color.green()
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)
+                
+                # Log kanalına işlem bilgisini gönder
+                await self.send_cache_cleanup_log(interaction, old_cache_size)
             else:
                 await interaction.response.send_message("❌ ExtraFeatures modülü bulunamadı!", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Cache temizleme hatası: {e}", ephemeral=True)
+    
+    async def send_cache_cleanup_log(self, interaction: discord.Interaction, old_cache_size: int):
+        """Cache temizliği işlemini log kanalına gönderir"""
+        try:
+            # Log kanalını al
+            log_channel = self.cog.bot.get_channel(1365954141880455238)
+            if not log_channel:
+                print("Cache temizliği log kanalı bulunamadı!")
+                return
+            
+            # Türkiye saati için timezone
+            turkey_tz = pytz.timezone('Europe/Istanbul')
+            current_time = datetime.datetime.now(turkey_tz)
+            
+            # Log embed'i oluştur
+            log_embed = discord.Embed(
+                title="🧹 Cache Temizliği İşlemi",
+                description=f"Sistem cache'i manuel olarak temizlendi.",
+                color=discord.Color.blue(),
+                timestamp=current_time
+            )
+            
+            log_embed.add_field(
+                name="⏰ İşlem Bilgileri",
+                value=f"{interaction.user.mention} ({interaction.user.name})\n"
+                      f"**ID:** {interaction.user.id}\n"
+                      f"**Tarih:** {current_time.strftime('%d.%m.%Y %H:%M:%S')} UTC+3",
+                inline=False
+            )
+            
+            log_embed.add_field(
+                name="📊 Temizlik Detayları",
+                value=f"**Temizlenen Cache Kullanıcı Sayısı:** {old_cache_size:,}\n"
+                      f"**Yeni Durum:** 0 kullanıcı\n"
+                      f"**İşlem Türü:** Manuel Cache Temizliği",
+                inline=False
+            )
+            
+            log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            log_embed.set_footer(
+                text=f"{interaction.guild.name} • Sistem Yönetimi",
+                icon_url=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Log mesajını gönder
+            await log_channel.send(embed=log_embed)
+            
+        except Exception as e:
+            print(f"Cache temizliği log gönderme hatası: {e}")
     
     @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
