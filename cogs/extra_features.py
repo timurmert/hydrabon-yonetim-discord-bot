@@ -1068,33 +1068,10 @@ class ExtraFeatures(commands.Cog):
             category = after.channel.category
             
             try:
-                # Özel rolleri tanımla
-                yonetim_kurulu_uyeleri_id = 1029089731314720798  # YÖNETİM KURULU ÜYELERİ
-                yonetim_kurulu_baskani_id = 1029089727061692522  # YÖNETİM KURULU BAŞKANI
-                kurucu_id = 1029089723110674463  # KURUCU
-                
-                # Kullanıcının rollerini kontrol et
-                ozel_rol_sahibi = any(role.id in [yonetim_kurulu_uyeleri_id, yonetim_kurulu_baskani_id, kurucu_id] for role in member.roles)
-                
-                # Kanal için izinleri oluştur
+                # Kanal için izinleri oluştur - Artık tüm kullanıcılar için aynı sistem
                 overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(connect=not ozel_rol_sahibi)  # Özel rol sahipleri için kilitli başlat
+                    guild.default_role: discord.PermissionOverwrite(connect=True)  # Herkes için açık başlat
                 }
-                
-                # Eğer özel rol sahibiyse, izinleri ayarla
-                if ozel_rol_sahibi:
-                    # Kanal başlangıçta herkese kapalı, sadece özel rollere açık
-                    yonetim_uye_rol = guild.get_role(yonetim_kurulu_uyeleri_id)
-                    yonetim_baskan_rol = guild.get_role(yonetim_kurulu_baskani_id)
-                    kurucu_rol = guild.get_role(kurucu_id)
-                    
-                    # Rolleri ekle
-                    if yonetim_uye_rol:
-                        overwrites[yonetim_uye_rol] = discord.PermissionOverwrite(connect=True)
-                    if yonetim_baskan_rol:
-                        overwrites[yonetim_baskan_rol] = discord.PermissionOverwrite(connect=True)
-                    if kurucu_rol:
-                        overwrites[kurucu_rol] = discord.PermissionOverwrite(connect=True)
                 
                 # Kanal sahibi her zaman girebilir
                 overwrites[member] = discord.PermissionOverwrite(connect=True)
@@ -1174,50 +1151,7 @@ class ExtraFeatures(commands.Cog):
         else:
             await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 
-    @app_commands.command(name="kilitle", description="Özel odayı kilitler")
-    async def kilitle(self, interaction: discord.Interaction):
-        # Kullanıcı bir ses kanalında mı kontrol et
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
-            
-        voice_channel = interaction.user.voice.channel
-        guild = interaction.guild
 
-        # Kullanıcı kanal sahibi mi kontrol et
-        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
-            # @everyone rolü için "Bağlan" iznini kaldır
-            overwrites = voice_channel.overwrites
-            everyone_role = guild.default_role  # @everyone rolünü elde et
-            overwrites[everyone_role] = discord.PermissionOverwrite(connect=False)
-
-            # Kanal sahibi her zaman bağlanabilir
-            overwrites[interaction.user] = discord.PermissionOverwrite(connect=True)
-            await voice_channel.edit(overwrites=overwrites)
-
-            await interaction.response.send_message("Oda kilitlendi.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
-
-    @app_commands.command(name="kilit-ac", description="Özel odanın kilidini açar")
-    async def kilit_ac(self, interaction: discord.Interaction):
-        # Kullanıcı bir ses kanalında mı kontrol et
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
-            
-        voice_channel = interaction.user.voice.channel
-        guild = interaction.guild
-
-        # Kullanıcı kanal sahibi mi kontrol et
-        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
-            # @everyone rolü için "Bağlan" iznini geri ver
-            overwrites = voice_channel.overwrites
-            everyone_role = guild.default_role  # @everyone rolünü elde et
-            overwrites[everyone_role] = discord.PermissionOverwrite(connect=True)
-
-            await voice_channel.edit(overwrites=overwrites)
-            await interaction.response.send_message("Oda kilidi açıldı.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 
     @app_commands.command(name="isim", description="Özel odanın ismini değiştirir")
     @app_commands.describe(name="Yeni oda ismi")
