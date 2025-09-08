@@ -32,13 +32,14 @@ class ExtraFeatures(commands.Cog):
         self.WELCOME_CHANNEL_ID = 1406431661872124026
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
-        self.exempt_users = [315888596437696522,
-                             906303284434833448,
-                             591347986995478545,
-                             871168756716564501,
-                             518492263098220566,
-                             303447295171493898,
-                             952244964866273311]
+        
+        # İzin verilen yetkili roller
+        self.EXEMPT_ROLES = {
+            YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
+            YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
+            YETKILI_ROLLERI["KURUCU"]
+        }
+        
         self.discord_invite_pattern = re.compile(r'discord(?:\.gg|app\.com\/invite|\.com\/invite)\/([a-zA-Z0-9]+)')
         
         # Karalisteyi yükle
@@ -290,7 +291,7 @@ class ExtraFeatures(commands.Cog):
             return
 
         # Yetkili kullanıcıları kontrol et
-        if message.author.id in self.exempt_users:
+        if any(role.id in self.EXEMPT_ROLES for role in message.author.roles):
             return
             
         # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
@@ -917,7 +918,7 @@ class ExtraFeatures(commands.Cog):
             pass
             return
         
-        if deleter.id in self.exempt_users:
+        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
         if deleter:
@@ -949,7 +950,7 @@ class ExtraFeatures(commands.Cog):
             pass
             return
         
-        if deleter.id in self.exempt_users:
+        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
         if deleter:
@@ -983,7 +984,7 @@ class ExtraFeatures(commands.Cog):
                 pass
                 return
             
-            if updater.id in self.exempt_users:
+            if updater and any(role.id in self.EXEMPT_ROLES for role in updater.roles):
                 return
 
             # Rolü değiştiren kişiyle güncellenen kişi aynı değilse
@@ -1110,30 +1111,6 @@ class ExtraFeatures(commands.Cog):
                 except discord.HTTPException as e:
                     print(f"Kanal silinirken hata: {e}")
 
-    # Yetkili izinleri komutları
-    @app_commands.command(name="yetkili-izin-ver", description="Kullanıcıya kanal silme, rol silme izni verir")
-    @app_commands.describe(kullanici="Yetkili izni verilecek kullanıcı")
-    async def yetkili_izin_ver(self, interaction: discord.Interaction, kullanici: discord.Member):
-        # Sadece belirli bir ID'ye sahip kullanıcı bu komutu kullanabilir
-        if interaction.user.id == 315888596437696522:
-            self.exempt_users.append(kullanici.id)
-            await interaction.response.send_message(f"{kullanici} adlı kullanıcı yetkili izinlerine eklendi.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için yetkiniz yok!", ephemeral=True)
-
-    @app_commands.command(name="yetkili-izin-sil", description="Kullanıcının kanal silme, rol silme iznini kaldırır")
-    @app_commands.describe(kullanici="Yetkili izni kaldırılacak kullanıcı")
-    async def yetkili_izin_sil(self, interaction: discord.Interaction, kullanici: discord.Member):
-        # Sadece belirli bir ID'ye sahip kullanıcı bu komutu kullanabilir
-        if interaction.user.id == 315888596437696522:
-            if kullanici.id in self.exempt_users:
-                self.exempt_users.remove(kullanici.id)
-                await interaction.response.send_message(f"{kullanici} adlı kullanıcı yetkili izinlerinden çıkartıldı.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"{kullanici} adlı kullanıcı zaten izin listesinde bulunmuyor.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için yetkiniz yok!", ephemeral=True)
-
     # Özel ses kanalı yönetim komutları
     @app_commands.command(name="limit", description="Özel odanın üye limitini ayarlar")
     @app_commands.describe(limit="Oda limiti ayarlar")
@@ -1233,7 +1210,7 @@ class ExtraFeatures(commands.Cog):
     @app_commands.describe(miktar="Silinecek mesaj sayısı (1-100 arası)")
     async def sil(self, interaction: discord.Interaction, miktar: int):
         # Yetkili kontrolü
-        if interaction.user.id not in self.exempt_users:
+        if not any(role.id in self.EXEMPT_ROLES for role in interaction.user.roles):
             return await interaction.response.send_message("Bu komutu kullanmak için yetkiniz yok!", ephemeral=True)
         
         # 100'den fazla mesaj silme girişimi kontrolü
