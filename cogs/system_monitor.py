@@ -15,7 +15,7 @@ class SystemMonitor(commands.Cog):
 
         # Eşik değerler
         self.CPU_THRESHOLD = 85.0  # %
-        self.RAM_THRESHOLD = 85.0  # %
+        self.RAM_THRESHOLD = 60.0  # %
         self.DISK_THRESHOLD = 90.0  # % (en dolu bölüm)
 
         # Kontrol aralığı ve uyarı soğuma süresi
