@@ -169,9 +169,10 @@ class ServerLogs(commands.Cog):
         except Exception:
             executor_user = None
         if executor_user:
-            embed.add_field(name="İşlemi Yapan", value=f"{executor_user.mention} ({executor_user.name})", inline=False)
+            embed.add_field(name="İşlemi Yapan", value=f"{executor_user.mention} ({executor_user.id})", inline=False)
         else:
-            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+            # Eğer silme işlemini yapan belirlenemezse, mesajın yazarını silen kişi olarak ata
+            embed.add_field(name="İşlemi Yapan", value=f"{message.author.mention} ({message.author.id})", inline=False)
         
         # Eklentileri göster
         if message.attachments:
@@ -234,17 +235,28 @@ class ServerLogs(commands.Cog):
                         if role != message.guild.default_role and (not kurucu_role_id or role.id != kurucu_role_id)
                     ]
                     if roles_to_remove:
-                        try:
-                            await deleter_member.remove_roles(*roles_to_remove, reason="Log kategorisinde mesaj silme tespit edildi")
-                        except (discord.Forbidden, discord.HTTPException):
-                            pass
+                        # Rolleri pozisyonuna göre sırala (en yüksekten en düşüğe)
+                        roles_to_remove.sort(key=lambda r: r.position, reverse=True)
+                        
+                        # Rolleri tek tek kaldır
+                        for role in roles_to_remove:
+                            try:
+                                await deleter_member.remove_roles(role, reason="Log kategorisinde mesaj silme tespit edildi")
+                                # Kısa bir bekleme süresi ekle (rate limiting önleme)
+                                await asyncio.sleep(0.5)
+                            except (discord.Forbidden, discord.HTTPException):
+                                # Hata durumunda devam et, diğer rolleri kaldırmaya çalış
+                                continue
 
             # YK-sohbet kanalına @everyone ile uyarı gönder
             warn_channel = self.bot.get_channel(self.yk_sohbet_channel_id) or message.guild.get_channel(self.yk_sohbet_channel_id)
             if not is_kurucu and warn_channel:
                 warn_text = "@everyone DİKKAT: Log kategorilerinden birinde mesaj silme tespit edildi."
                 if deleter_member:
-                    warn_text += f" İşlemi yapan: {deleter_member.mention} ({deleter_member.name})."
+                    warn_text += f" İşlemi yapan: {deleter_member.mention} ({deleter_member.id})."
+                else:
+                    # Eğer silen kişi belirlenemezse, mesaj yazarını göster
+                    warn_text += f" İşlemi yapan: {message.author.mention} ({message.author.id})."
 
                 # Silinen mesajın özet embed'i (özellikle log embed'leri için)
                 deleted_summary = discord.Embed(
