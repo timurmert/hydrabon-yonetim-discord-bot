@@ -761,6 +761,22 @@ class Database:
         except Exception as e:
             print(f"Zamanlanmış mesaj güncelleme hatası: {e}")
             return False
+    
+    async def update_scheduled_message_content(self, message_id, message_content):
+        """Zamanlanmış mesajın sadece içeriğini günceller"""
+        return await self.update_scheduled_message(message_id, message_content=message_content)
+    
+    async def update_scheduled_message_schedule(self, message_id, schedule_data):
+        """Zamanlanmış mesajın sadece zaman aralığını günceller"""
+        return await self.update_scheduled_message(message_id, schedule_data=schedule_data)
+    
+    async def update_scheduled_message_repeat(self, message_id, repeat_count):
+        """Zamanlanmış mesajın sadece tekrar sayısını günceller"""
+        return await self.update_scheduled_message(message_id, repeat_count=repeat_count)
+    
+    async def update_scheduled_message_channel(self, message_id, channel_id, channel_name):
+        """Zamanlanmış mesajın sadece kanalını günceller"""
+        return await self.update_scheduled_message(message_id, channel_id=channel_id, channel_name=channel_name)
             
     async def delete_scheduled_message(self, message_id):
         """Zamanlanmış mesajı siler
