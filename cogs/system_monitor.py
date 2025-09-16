@@ -136,7 +136,7 @@ class SystemMonitor(commands.Cog):
         embed.add_field(name="Disk Kullanımı", value=f"{disk_percent:.1f}% (eşik {self.DISK_THRESHOLD:.0f}%)", inline=True)
 
         try:
-            await channel.send(embed=embed)
+            await channel.send(content=f"⚠️ Sistem Kaynak Uyarısı ||@everyone||", embed=embed)
             for key in triggered_keys:
                 self._mark_alert(key)
         except Exception:
