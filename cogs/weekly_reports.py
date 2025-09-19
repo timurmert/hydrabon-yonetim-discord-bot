@@ -474,13 +474,13 @@ class WeeklyReports(commands.Cog):
                 ''', (cleanup_cutoff.isoformat(),))
                 
                 # Eski bump loglarını temizle (60 gün öncesi)
-                bump_cutoff = report_start_date - datetime.timedelta(days=60)
+                bump_cutoff = report_start_date - datetime.timedelta(days=30)
                 await cursor.execute('''
                 DELETE FROM bump_logs WHERE bump_time < ?
                 ''', (bump_cutoff.isoformat(),))
                 
                 # Eski spam loglarını temizle (30 gün öncesi)  
-                spam_cutoff = report_start_date - datetime.timedelta(days=30)
+                spam_cutoff = report_start_date - datetime.timedelta(days=14)
                 await cursor.execute('''
                 DELETE FROM spam_logs WHERE spam_time < ?
                 ''', (spam_cutoff.isoformat(),))
@@ -503,6 +503,12 @@ class WeeklyReports(commands.Cog):
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
                 ''', (presence_cutoff.isoformat(),))
+                
+                # Eski staff online session'larını da temizle (2 hafta öncesi)
+                staff_online_cutoff = report_start_date - datetime.timedelta(days=14)
+                deleted_sessions = await db.cleanup_old_staff_online_sessions(14)
+                if deleted_sessions > 0:
+                    print(f"Haftalık rapor - {deleted_sessions} eski online session silindi")
                 
                 await db.connection.commit()
                 
@@ -707,7 +713,7 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
-            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri) ===
+            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri ve Çevrim İçi Saatleri) ===
             try:
                 # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
@@ -733,6 +739,9 @@ class WeeklyReports(commands.Cog):
                 # Veritabanından tüm yetkili mesaj verilerini al (limit artırıldı)
                 top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
                 
+                # Yetkili çevrim içi saatleri verilerini al
+                staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
+                
                 def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in included_role_ids)
@@ -740,6 +749,9 @@ class WeeklyReports(commands.Cog):
                 def is_excluded(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in excluded_role_ids)
+                
+                # Online saatleri dictionary'ye çevir
+                online_stats_dict = {stat['user_id']: stat for stat in staff_online_stats}
                 
                 results = []
                 for row in top_candidates:
@@ -750,15 +762,22 @@ class WeeklyReports(commands.Cog):
                         continue
                     if is_excluded(member):
                         continue
-                    results.append((member, row['total_messages']))
+                    
+                    # Online istatistiklerini al
+                    online_data = online_stats_dict.get(member.id, {
+                        'total_hours': 0,
+                        'daily_average': 0
+                    })
+                    
+                    results.append((member, row['total_messages'], online_data['total_hours'], online_data['daily_average']))
                 
-                # Sırala (tüm sonuçları göster, limit yok)
-                results.sort(key=lambda x: x[1], reverse=True)
+                # Sırala (mesaj sayısına göre, sonra online saatlere göre)
+                results.sort(key=lambda x: (x[1], x[2]), reverse=True)
                 
                 if results:
                     lines = []
-                    for i, (member, count) in enumerate(results, 1):
-                        lines.append(f"**{i}.** {member.mention} - {count} mesaj")
+                    for i, (member, msg_count, online_hours, daily_avg) in enumerate(results, 1):
+                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f} saat online")
                     
                     # Çok uzunsa bölümlere ayır
                     if len(lines) > 20:
@@ -769,19 +788,19 @@ class WeeklyReports(commands.Cog):
                         lines = first_20
                     
                     embed.add_field(
-                        name=f"💬 Haftalık Aktif Yetkili Kadro ({len(results)} kişi)",
+                        name=f"👥 Aktif Yetkili Kadro - Mesaj & Online ({len(results)} kişi)",
                         value="\n".join(lines),
                         inline=False
                     )
                 else:
                     embed.add_field(
-                        name="💬 Haftalık Aktif Yetkili Kadro",
-                        value="Bu hafta yetkili kadrosunda mesaj aktivitesi bulunamadı.",
+                        name="👥 Aktif Yetkili Kadro - Mesaj & Online",
+                        value="Bu hafta yetkili kadrosunda aktivite bulunamadı.",
                         inline=False
                     )
             except Exception as e:
                 embed.add_field(
-                    name="💬 Haftalık Aktif Yetkili Kadro",
+                    name="👥 Aktif Yetkili Kadro - Mesaj & Online",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )

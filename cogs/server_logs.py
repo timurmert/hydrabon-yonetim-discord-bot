@@ -45,6 +45,99 @@ class ServerLogs(commands.Cog):
         # YK rol ID'si
         self.yk_role_id = 1029089731314720798  # YÖNETİM KURULU ÜYELERİ
         self.turkey_tz = pytz.timezone('Europe/Istanbul')
+        
+        # Online session tracking için cache
+        self.staff_online_cache = {}  # user_id: {'status': str, 'last_update': datetime}
+        
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Bot hazır olduğunda aktif online yetkilileri tespit et"""
+        await self._initialize_staff_online_sessions()
+        
+    async def _initialize_staff_online_sessions(self):
+        """Bot başladığında mevcut online yetkilileri tespit eder"""
+        try:
+            await asyncio.sleep(3)  # Bot tamamen hazır olana kadar bekle
+            
+            for guild in self.bot.guilds:
+                db = await get_db()
+                
+                # Önce tüm aktif session'ları sonlandır (bot restart)
+                await db.end_all_staff_sessions(guild.id)
+                
+                # Şu anda online olan yetkilileri tespit et
+                online_statuses = {discord.Status.online, discord.Status.idle, discord.Status.dnd}
+                
+                for member in guild.members:
+                    if member.bot:
+                        continue
+                        
+                    user_role_ids = {role.id for role in member.roles}
+                    is_staff = bool(user_role_ids.intersection(self.yetkili_role_ids))
+                    
+                    if is_staff and member.status in online_statuses:
+                        status_str = str(member.status)
+                        await db.start_staff_online_session(guild.id, member.id, member.display_name, status_str)
+                        self.staff_online_cache[member.id] = {
+                            'status': status_str,
+                            'last_update': datetime.datetime.now(self.turkey_tz)
+                        }
+                        
+        except Exception as e:
+            print(f"Staff online session initialization hatası: {e}")
+        
+    async def _handle_staff_status_change(self, after, before):
+        """Yetkili durum değişikliklerini handle eder ve session tracking yapar"""
+        try:
+            # Status değişikliği kontrol et
+            if before.status == after.status:
+                return
+            
+            user_id = after.id
+            guild_id = after.guild.id
+            username = after.display_name
+            
+            # Online statuslar: online, idle, dnd
+            online_statuses = {discord.Status.online, discord.Status.idle, discord.Status.dnd}
+            
+            was_online = before.status in online_statuses
+            is_online = after.status in online_statuses
+            
+            db = await get_db()
+            
+            # Online'dan offline'a geçiş
+            if was_online and not is_online:
+                await db.end_staff_online_session(guild_id, user_id)
+                # Cache'den kaldır
+                if user_id in self.staff_online_cache:
+                    del self.staff_online_cache[user_id]
+            
+            # Offline'dan online'a geçiş
+            elif not was_online and is_online:
+                status_str = str(after.status)
+                await db.start_staff_online_session(guild_id, user_id, username, status_str)
+                # Cache'e ekle
+                self.staff_online_cache[user_id] = {
+                    'status': status_str,
+                    'last_update': datetime.datetime.now(self.turkey_tz)
+                }
+            
+            # Online içinde durum değişikliği (online -> idle, idle -> dnd vs.)
+            elif was_online and is_online and before.status != after.status:
+                # Mevcut session'ı sonlandır ve yenisini başlat
+                await db.end_staff_online_session(guild_id, user_id)
+                status_str = str(after.status)
+                await db.start_staff_online_session(guild_id, user_id, username, status_str)
+                # Cache'i güncelle
+                self.staff_online_cache[user_id] = {
+                    'status': status_str,
+                    'last_update': datetime.datetime.now(self.turkey_tz)
+                }
+                
+        except Exception as e:
+            # Silent fail - performansı etkilemeyecek şekilde
+            print(f"Staff status tracking hatası: {e}")
+            pass
 
     async def get_log_channel(self, guild):
         """Sunucudaki log kanalını bulur ve döndürür"""
@@ -1077,20 +1170,27 @@ class ServerLogs(commands.Cog):
         # 2. Sunucu kontrolü
         if not after.guild:
             return
-            
-        # 3. Aktivite değişikliği kontrolü (sadece aktivite değişirse kontrol et)
-        if before.activities == after.activities:
-            return
-            
-        # 4. Aktivite varlığı kontrolü
-        if not after.activities:
-            return
-            
-        # 5. Yetkili kontrolü (sadece gerektiğinde)
+        
+        # 3. Yetkili kontrolü (sadece gerektiğinde)
         user_role_ids = {role.id for role in after.roles}  # Set kullanarak hızlandır
         
         # Intersection kullanarak hızlı kontrol (cached set kullan)
-        if not user_role_ids.intersection(self.yetkili_role_ids):
+        is_staff = bool(user_role_ids.intersection(self.yetkili_role_ids))
+        
+        if is_staff:
+            # Online session tracking
+            await self._handle_staff_status_change(after, before)
+        
+        # 4. Orijinal davet linki kontrolü (sadece aktivite değişirse)
+        if before.activities == after.activities:
+            return
+            
+        # 5. Aktivite varlığı kontrolü
+        if not after.activities:
+            return
+            
+        # 6. Yetkili değilse davet kontrolü yapmaya gerek yok
+        if not is_staff:
             return
         
         # Tüm aktivite metinlerini birleştir (daha verimli)
@@ -1131,8 +1231,7 @@ class ServerLogs(commands.Cog):
                 await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
                 break  # İlk bulduğunda dur
             except discord.HTTPException:
-                # Diğer Discord hataları, sessizce geç
-                pass
+                print(f"Davet linki uyarısı gönderme hatası: {e}")
 
     async def send_invite_alert(self, member, invite, activity_text):
         """Yetkili kadrosundaki üyenin başka sunucu davet linki koyması durumunda uyarı gönderir"""
@@ -1195,7 +1294,7 @@ class ServerLogs(commands.Cog):
             
             # Embed oluştur
             embed = discord.Embed(
-                title="⚠️ Yetkili Şüpheli Link Uyarısı",
+                title="⚠️ Yetkili Geçersiz/Şüpheli Link Uyarısı",
                 description=f"**Yetkili Üye:** {member.mention} ({member.name})\n"
                            f"**Geçersiz/Şüpheli Davet Linki Tespit Edildi!**",
                 color=discord.Color.orange(),
