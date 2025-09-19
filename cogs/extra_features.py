@@ -32,6 +32,7 @@ class ExtraFeatures(commands.Cog):
         self.WELCOME_CHANNEL_ID = 1406431661872124026
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
+        self.KURUCU_ID = 315888596437696522  # Kurucu ID'si
         
         # İzin verilen yetkili roller
         self.EXEMPT_ROLES = {
@@ -325,20 +326,23 @@ class ExtraFeatures(commands.Cog):
             
         # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
         try:
-            if message.mention_everyone or message.role_mentions or message.mentions:
-                # Kurucu rolü etiketlendi mi?
-                kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
-                kurucu_role_etiketi = (kurucu_role is not None and kurucu_role in message.role_mentions)
+            # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
+            # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
+            kurucu_role_etiketi = False
+            kurucu_kullanici_etiketi = False
+            
+            # Spesifik kurucu ID'si kontrolü
+            kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
+            
+            if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
+                kurucu_kullanici_etiketi = True
+            
+            # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
+            kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
+            if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
+                kurucu_role_etiketi = True
 
-                # Kurucu kullanıcı (role sahibi) etiketlendi mi? (rolü taşıyan herkes kurucu olabilir)
-                kurucu_kullanici_etiketi = False
-                if message.mentions:
-                    for m in message.mentions:
-                        if isinstance(m, discord.Member) and any(r.id == self.KURUCU_ROLE_ID for r in m.roles):
-                            kurucu_kullanici_etiketi = True
-                            break
-
-                if kurucu_role_etiketi or kurucu_kullanici_etiketi:
+            if kurucu_role_etiketi or kurucu_kullanici_etiketi:
                     try:
                         await message.delete()
                     except discord.Forbidden:
