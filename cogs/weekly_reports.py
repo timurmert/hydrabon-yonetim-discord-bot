@@ -255,6 +255,52 @@ class WeeklyReports(commands.Cog):
     async def before_presence_snapshot_task(self):
         await self.bot.wait_until_ready()
 
+    def _compute_daily_averages(self, snapshots, turkey_tz):
+        """Günlük ortalamalar hesaplar (Pazartesi-Pazar)"""
+        if not snapshots:
+            return {
+                'monday': None, 'tuesday': None, 'wednesday': None, 'thursday': None,
+                'friday': None, 'saturday': None, 'sunday': None,
+                'samples': 0
+            }
+        
+        # Günlere göre grupla
+        daily_buckets = {
+            0: [],  # Pazartesi
+            1: [],  # Salı
+            2: [],  # Çarşamba
+            3: [],  # Perşembe
+            4: [],  # Cuma
+            5: [],  # Cumartesi
+            6: []   # Pazar
+        }
+        
+        for snap in snapshots:
+            try:
+                # snapshot_time string olabilir; ISO formatlı
+                snap_time = snap['snapshot_time']
+                dt = datetime.datetime.fromisoformat(snap_time.replace('Z', '+00:00')) if isinstance(snap_time, str) else snap_time
+                dt_tr = dt.astimezone(turkey_tz)
+                weekday = dt_tr.weekday()  # 0=Pazartesi, 6=Pazar
+                val = int(snap['online_count'])
+                daily_buckets[weekday].append(val)
+            except Exception:
+                continue
+        
+        def avg(lst):
+            return (sum(lst) / len(lst)) if lst else None
+        
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        daily_averages = {}
+        total_samples = 0
+        
+        for i, day_name in enumerate(day_names):
+            daily_averages[day_name] = avg(daily_buckets[i])
+            total_samples += len(daily_buckets[i])
+        
+        daily_averages['samples'] = total_samples
+        return daily_averages
+
     def _compute_presence_averages(self, snapshots, turkey_tz):
         """6 saatlik dilimler, gündüz/gece ve genel ortalamaları hesaplar"""
         if not snapshots:
@@ -612,26 +658,56 @@ class WeeklyReports(commands.Cog):
                 inline=True
             )
 
-            # === AKTİF KULLANICI ORTALAMALARI (HAFTALIK) ===
+            # === AKTİF KULLANICI ORTALAMALARI ===
             presence_snaps = await db.get_presence_snapshots(guild.id, start_date, end_date)
+            
+            # Günlük ortalamalar
+            daily_stats = self._compute_daily_averages(presence_snaps, turkey_tz)
+            if daily_stats['samples'] > 0:
+                def fmt(v):
+                    return f"{v:.1f}" if v is not None else "-"
+                
+                # Türkçe gün isimleri
+                day_names_tr = {
+                    'monday': 'Pazartesi',
+                    'tuesday': 'Salı', 
+                    'wednesday': 'Çarşamba',
+                    'thursday': 'Perşembe',
+                    'friday': 'Cuma',
+                    'saturday': 'Cumartesi',
+                    'sunday': 'Pazar'
+                }
+                
+                daily_lines = []
+                for day_en, day_tr in day_names_tr.items():
+                    avg_val = daily_stats[day_en]
+                    daily_lines.append(f"**{day_tr}:** {fmt(avg_val)}")
+                
+                embed.add_field(
+                    name="📅 Günlük Aktif Üye Ortalamaları",
+                    value="\n".join(daily_lines),
+                    inline=True
+                )
+            
+            # Saatlik ortalamalar
             presence_stats = self._compute_presence_averages(presence_snaps, turkey_tz)
             if presence_stats['samples'] > 0:
                 r = presence_stats['ranges']
                 def fmt(v):
                     return f"{v:.1f}" if v is not None else "-"
                 lines = [
-                    f"00-06: {fmt(r['00-06'])}",
-                    f"06-12: {fmt(r['06-12'])}",
-                    f"12-18: {fmt(r['12-18'])}",
-                    f"18-00: {fmt(r['18-00'])}",
-                    f"Gündüz (06-18): {fmt(presence_stats['day'])}",
-                    f"Gece (18-06): {fmt(presence_stats['night'])}",
-                    f"Genel Ortalama: {fmt(presence_stats['overall'])}",
+                    f"**00-06:** {fmt(r['00-06'])}",
+                    f"**06-12:** {fmt(r['06-12'])}",
+                    f"**12-18:** {fmt(r['12-18'])}",
+                    f"**18-00:** {fmt(r['18-00'])}",
+                    f"**Gündüz (06-18):** {fmt(presence_stats['day'])}",
+                    f"**Gece (18-06):** {fmt(presence_stats['night'])}",
+                    f"**Genel Ortalama:** {fmt(presence_stats['overall'])}",
                 ]
                 embed.add_field(
-                    name="🟢 Aktif Üye Ortalamaları (Haftalık)",
+                    name="🕐 Saatlik Aktif Üye Ortalamaları",
                     value="\n".join(lines),
-                    inline=False
+                    inline=True
                 )
             
             # Footer ve thumbnail
