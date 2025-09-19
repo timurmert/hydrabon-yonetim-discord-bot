@@ -588,58 +588,81 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
-            # === TOP 10 AKTİF YETKİLİ (Mesaj) ===
+            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri) ===
             try:
-                # Üst yönetim hariç tutacağımız rol ID'leri
+                # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
                     1029089723110674463,  # KURUCU
                     1029089727061692522,  # YK BAŞKANI
-                    1029089731314720798,  # YK ÜYELERİ
                 }
-                # Veritabanından adayları al (fazla getirip filtreleyeceğiz)
-                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=20)
-                # Filtre: yetkili olmalı ve excluded rollerden hiçbiri olmamalı
+                
+                # Dahil edilecek yetkili rol ID'leri (YETKİLİ_HİYERARSİ'den çek)
                 try:
                     from cogs.yetkili_panel import YETKILI_HIYERARSI
+                    included_role_ids = set(YETKILI_HIYERARSI)
                 except Exception:
-                    YETKILI_HIYERARSI = []
-                def is_staff(member):
+                    # Fallback: Manuel rol ID'leri
+                    included_role_ids = {
+                        1163918714081644554,  # STAJYER
+                        1200919832393154680,  # ASİSTAN
+                        1163918107501412493,  # MODERATÖR
+                        1163918130192580608,  # ADMİN
+                        1412843482980290711,  # YÖNETİM KURULU ADAYLARI
+                        1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
+                    }
+                
+                # Veritabanından tüm yetkili mesaj verilerini al (limit artırıldı)
+                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
+                
+                def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
-                    return any(rid in user_role_ids for rid in YETKILI_HIYERARSI)
+                    return any(rid in user_role_ids for rid in included_role_ids)
+                
                 def is_excluded(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in excluded_role_ids)
+                
                 results = []
                 for row in top_candidates:
                     member = guild.get_member(row['user_id'])
                     if not member:
                         continue
-                    if not is_staff(member):
+                    if not is_included_staff(member):
                         continue
                     if is_excluded(member):
                         continue
                     results.append((member, row['total_messages']))
-                # Sırala ve top 10 al
+                
+                # Sırala (tüm sonuçları göster, limit yok)
                 results.sort(key=lambda x: x[1], reverse=True)
-                top10 = results[:10]
-                if top10:
+                
+                if results:
                     lines = []
-                    for i, (member, count) in enumerate(top10, 1):
+                    for i, (member, count) in enumerate(results, 1):
                         lines.append(f"**{i}.** {member.mention} - {count} mesaj")
+                    
+                    # Çok uzunsa bölümlere ayır
+                    if len(lines) > 20:
+                        # İlk 20'yi göster, kalanları say
+                        first_20 = lines[:20]
+                        remaining_count = len(lines) - 20
+                        first_20.append(f"\n*...ve {remaining_count} yetkili daha*")
+                        lines = first_20
+                    
                     embed.add_field(
-                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        name=f"💬 Haftalık Aktif Yetkili Kadro ({len(results)} kişi)",
                         value="\n".join(lines),
                         inline=False
                     )
                 else:
                     embed.add_field(
-                        name="💬 Haftalık En Aktif 10 Yetkili",
-                        value="Bu hafta uygun kriterlerde mesaj aktivitesi bulunamadı.",
+                        name="💬 Haftalık Aktif Yetkili Kadro",
+                        value="Bu hafta yetkili kadrosunda mesaj aktivitesi bulunamadı.",
                         inline=False
                     )
             except Exception as e:
                 embed.add_field(
-                    name="💬 Haftalık En Aktif 10 Yetkili",
+                    name="💬 Haftalık Aktif Yetkili Kadro",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )

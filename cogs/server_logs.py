@@ -321,7 +321,7 @@ class ServerLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Yetkili mesaj sayımlarını toplar (Kurucu, YK hariç)."""
+        """Yetkili mesaj sayımlarını toplar (Kurucu, YK Başkanı hariç - YK Üyeleri ve Adayları dahil)."""
         try:
             if message.author.bot or not message.guild:
                 return
@@ -329,11 +329,10 @@ class ServerLogs(commands.Cog):
             user_role_ids = {role.id for role in message.author.roles}
             if not user_role_ids & set(self.yetkili_rolleri.values()):
                 return
-            # Üst yönetim hariç: Kurucu, YK Başkanı, YK Üyeleri
+            # Sadece en üst yönetim hariç: Kurucu, YK Başkanı (YK Üyeleri ve Adayları dahil)
             excluded = {
                 self.yetkili_rolleri.get("KURUCU"),
                 self.yetkili_rolleri.get("YÖNETİM KURULU BAŞKANI"),
-                self.yetkili_rolleri.get("YÖNETİM KURULU ÜYELERİ"),
             }
             if any(rid in user_role_ids for rid in excluded if rid):
                 return
