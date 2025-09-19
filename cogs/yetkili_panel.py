@@ -2808,7 +2808,34 @@ class KullaniciNotlariView(discord.ui.View):
         embed.set_footer(text=f"Sayfa {self.current_page + 1} • Kullanım: Aşağıdaki butonları kullanın")
         return embed
     
-    @discord.ui.button(label="🔍 Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=0)
+    @discord.ui.button(label="➕ Not Ekle", style=discord.ButtonStyle.green, emoji="➕", row=0)
+    async def add_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not ekleme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = AddNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="✏️ Not Düzenle", style=discord.ButtonStyle.blurple, emoji="✏️", row=0)
+    async def edit_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not düzenleme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = EditNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="🗑️ Not Sil", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    async def delete_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not silme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = DeleteNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="🔍 Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=1)
     async def search_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not arama modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2817,7 +2844,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = SearchNotesModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="👤 Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=0)
+    @discord.ui.button(label="👤 Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=1)
     async def filter_user_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Kullanıcıya göre filtreleme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2826,7 +2853,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = FilterUserModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📊 Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
+    @discord.ui.button(label="📊 Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
     async def detailed_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Detaylı istatistikleri gösterir"""
         if interaction.user.id != self.user.id:
@@ -2834,7 +2861,7 @@ class KullaniciNotlariView(discord.ui.View):
         
         await self.show_detailed_stats(interaction)
     
-    @discord.ui.button(label="⬅️ Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1)
+    @discord.ui.button(label="⬅️ Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=2)
     async def previous_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Önceki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -2847,7 +2874,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu ilk sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="➡️ Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=1)
+    @discord.ui.button(label="➡️ Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=2)
     async def next_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sonraki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -2864,7 +2891,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu son sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=2)
+    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=3)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ana panele dön"""
         if interaction.user.id != self.user.id:
@@ -3079,6 +3106,286 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
             embed.set_thumbnail(url=user.display_avatar.url)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
+    """Not ekleme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    user_input = discord.ui.TextInput(
+        label="Kullanıcı ID veya @kullanıcı",
+        placeholder="123456789012345678 veya @kullanıcı",
+        max_length=100,
+        required=True
+    )
+    
+    note_content = discord.ui.TextInput(
+        label="Not İçeriği",
+        placeholder="Bu kullanıcı hakkında not yazın...",
+        style=discord.TextStyle.paragraph,
+        max_length=1500,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        user_input = self.user_input.value.strip()
+        content = self.note_content.value.strip()
+        
+        # Kullanıcı ID'sini çıkar
+        user_id = None
+        if user_input.startswith('<@') and user_input.endswith('>'):
+            # Mention formatı
+            user_id_str = user_input[2:-1]
+            if user_id_str.startswith('!'):
+                user_id_str = user_id_str[1:]
+            try:
+                user_id = int(user_id_str)
+            except ValueError:
+                pass
+        elif user_input.isdigit():
+            user_id = int(user_input)
+        
+        if not user_id:
+            await interaction.response.send_message(
+                "❌ Geçerli bir kullanıcı ID'si veya mention girin!",
+                ephemeral=True
+            )
+            return
+        
+        # Kullanıcıyı bul
+        user = interaction.guild.get_member(user_id) or await interaction.client.fetch_user(user_id)
+        if not user:
+            await interaction.response.send_message(
+                "❌ Kullanıcı bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Notu ekle
+        db = await get_db()
+        username = user.global_name or user.name
+        discriminator = user.discriminator if user.discriminator != "0" else None
+        
+        note_id = await db.add_user_note(
+            user_id=user.id,
+            username=username,
+            discriminator=discriminator,
+            note_content=content,
+            created_by=interaction.user.id,
+            created_by_username=interaction.user.global_name or interaction.user.name,
+            guild_id=interaction.guild.id
+        )
+        
+        # Başarı mesajı
+        embed = discord.Embed(
+            title="✅ Not Başarıyla Eklendi",
+            description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
+                       f"**Not ID:** `{note_id}`\n"
+                       f"**İçerik:** {content[:100]}{'...' if len(content) > 100 else ''}",
+            color=0x00ff00,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
+    """Not düzenleme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    note_id_input = discord.ui.TextInput(
+        label="Not ID",
+        placeholder="Düzenlenecek notun ID'si",
+        max_length=20,
+        required=True
+    )
+    
+    new_content = discord.ui.TextInput(
+        label="Yeni Not İçeriği",
+        placeholder="Yeni not içeriğini yazın...",
+        style=discord.TextStyle.paragraph,
+        max_length=1500,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            note_id = int(self.note_id_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Geçerli bir not ID'si girin!",
+                ephemeral=True
+            )
+            return
+        
+        new_content = self.new_content.value.strip()
+        
+        db = await get_db()
+        
+        # Önce notu kontrol et
+        note = await db.get_note_by_id(note_id, interaction.guild.id)
+        if not note:
+            await interaction.response.send_message(
+                f"❌ `{note_id}` ID'li not bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Notu güncelle
+        success = await db.update_user_note(note_id, new_content, interaction.guild.id)
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Not Başarıyla Güncellendi",
+                description=f"**Not ID:** `{note_id}`\n"
+                           f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                           f"**Eski İçerik:** {note['note_content'][:100]}{'...' if len(note['note_content']) > 100 else ''}\n"
+                           f"**Yeni İçerik:** {new_content[:100]}{'...' if len(new_content) > 100 else ''}",
+                color=0x00ff00,
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                "❌ Not güncellenirken bir hata oluştu!",
+                ephemeral=True
+            )
+
+
+class DeleteNoteModal(discord.ui.Modal, title="Not Sil"):
+    """Not silme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    note_id_input = discord.ui.TextInput(
+        label="Not ID",
+        placeholder="Silinecek notun ID'si",
+        max_length=20,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            note_id = int(self.note_id_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Geçerli bir not ID'si girin!",
+                ephemeral=True
+            )
+            return
+        
+        db = await get_db()
+        
+        # Önce notu kontrol et
+        note = await db.get_note_by_id(note_id, interaction.guild.id)
+        if not note:
+            await interaction.response.send_message(
+                f"❌ `{note_id}` ID'li not bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Onay için view oluştur
+        view = DeleteNoteConfirmView(note, interaction.user)
+        
+        embed = discord.Embed(
+            title="⚠️ Not Silme Onayı",
+            description=f"**Not ID:** `{note_id}`\n"
+                       f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                       f"**İçerik:** {note['note_content'][:200]}{'...' if len(note['note_content']) > 200 else ''}\n"
+                       f"**Ekleyen:** {note['created_by_username']}\n"
+                       f"**Tarih:** {datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')}\n\n"
+                       f"Bu notu silmek istediğinizden emin misiniz?",
+            color=0xff6b6b,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class DeleteNoteConfirmView(discord.ui.View):
+    """Not silme onay view'ı"""
+    
+    def __init__(self, note, user):
+        super().__init__(timeout=60)
+        self.note = note
+        self.user = user
+    
+    @discord.ui.button(label="🗑️ Sil", style=discord.ButtonStyle.danger)
+    async def confirm_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message(
+                "❌ Bu işlemi sadece komutu kullanan kişi yapabilir!",
+                ephemeral=True
+            )
+            return
+        
+        db = await get_db()
+        success = await db.delete_user_note(self.note['id'], interaction.guild.id)
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Not Başarıyla Silindi",
+                description=f"**Not ID:** `{self.note['id']}`\n"
+                           f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
+                           f"**Silinen İçerik:** {self.note['note_content'][:100]}{'...' if len(self.note['note_content']) > 100 else ''}",
+                color=0x00ff00,
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.set_footer(text=f"Silen: {interaction.user.name}")
+            
+            # Butonları devre dışı bırak
+            for item in self.children:
+                item.disabled = True
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message(
+                "❌ Not silinirken bir hata oluştu!",
+                ephemeral=True
+            )
+    
+    @discord.ui.button(label="❌ İptal", style=discord.ButtonStyle.secondary)
+    async def cancel_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message(
+                "❌ Bu işlemi sadece komutu kullanan kişi yapabilir!",
+                ephemeral=True
+            )
+            return
+        
+        embed = discord.Embed(
+            title="❌ İşlem İptal Edildi",
+            description="Not silme işlemi iptal edildi.",
+            color=0x95a5a6,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        
+        # Butonları devre dışı bırak
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def on_timeout(self):
+        # Timeout olduğunda butonları devre dışı bırak
+        for item in self.children:
+            item.disabled = True
+        try:
+            await self.message.edit(view=self)
+        except:
+            pass
 
 
 class YetkiliPanel(commands.Cog):

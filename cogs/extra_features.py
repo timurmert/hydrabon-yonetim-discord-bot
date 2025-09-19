@@ -263,6 +263,10 @@ class ExtraFeatures(commands.Cog):
                 if channel:
                     welcome_message = random.choice(self.welcome_messages).format(member.mention)
                     await channel.send(welcome_message)
+            
+            # Kullanıcı notu kontrolü (sadece gerçek kullanıcılar için)
+            if not member.bot:
+                await self.check_user_notes_on_join(member)
                     
         except Exception as e:
             print(f"Member join işlemi hatası: {e}")
@@ -286,6 +290,71 @@ class ExtraFeatures(commands.Cog):
                     
         except Exception as e:
             print(f"Member remove işlemi hatası: {e}")
+    
+    async def check_user_notes_on_join(self, member):
+        """Yeni katılan üye için not kontrolü yapar ve uyarı gönderir"""
+        try:
+            from database import get_db
+            db = await get_db()
+            
+            # Kullanıcının notlarını kontrol et
+            notes = await db.get_user_notes(member.id, member.guild.id, limit=10)
+            
+            if notes:
+                # Yetkili sohbet kanalını al
+                yetkili_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
+                if not yetkili_channel:
+                    return
+                
+                # Uyarı embed'i oluştur
+                embed = discord.Embed(
+                    title="⚠️ NOTLU KULLANICI GİRİŞİ",
+                    description=f"**Kullanıcı:** {member.mention} ({member.display_name})\n"
+                               f"**Kullanıcı ID:** `{member.id}`\n"
+                               f"**Hesap Oluşturma:** {discord.utils.format_dt(member.created_at, style='R')}\n"
+                               f"**Toplam Not Sayısı:** {len(notes)}",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(self.turkey_tz)
+                )
+                
+                # İlk 3 notu göster
+                for i, note in enumerate(notes[:3], 1):
+                    created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+                    note_content = note['note_content']
+                    if len(note_content) > 200:
+                        note_content = note_content[:200] + "..."
+                    
+                    embed.add_field(
+                        name=f"📝 Not #{note['id']} - {created_date}",
+                        value=f"**İçerik:** {note_content}\n"
+                              f"**Ekleyen:** {note['created_by_username']}",
+                        inline=False
+                    )
+                
+                # Eğer 3'ten fazla not varsa bilgi ekle
+                if len(notes) > 3:
+                    embed.add_field(
+                        name="ℹ️ Ek Bilgi",
+                        value=f"Bu kullanıcı hakkında **{len(notes) - 3} adet daha not** bulunmaktadır.\n"
+                              f"Tüm notları görmek için `/yetkili-panel` → `Kullanıcı Notları` → `👤 Kullanıcıya Göre Filtrele` kullanın.",
+                        inline=False
+                    )
+                
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(
+                    text=f"Kontrol: Otomatik Not Sistemi",
+                    icon_url=member.guild.icon.url if member.guild.icon else None
+                )
+                
+                # Uyarı mesajını gönder (everyone kullanmadan)
+                await self.safe_send(
+                    yetkili_channel,
+                    content="🚨 **DİKKAT** 🚨\nNotlu bir kullanıcı sunucuya katıldı!",
+                    embed=embed
+                )
+                
+        except Exception as e:
+            print(f"Kullanıcı not kontrolü hatası: {e}")
     
     async def check_discord_invite(self, message_content, guild):
         """Discord davet linklerini kontrol eder"""
