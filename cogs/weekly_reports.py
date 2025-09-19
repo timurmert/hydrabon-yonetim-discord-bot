@@ -405,6 +405,58 @@ class WeeklyReports(commands.Cog):
         except Exception as e:
             print(f"Haftalık rapor oluşturma hatası: {e}")
     
+    async def get_moderation_actions(self, guild, start_date, end_date):
+        """Belirtilen tarih aralığında gerçekleşen kick/ban işlemlerini audit log'dan alır"""
+        moderation_data = {
+            'kicks': [],
+            'bans': [],
+            'total': 0
+        }
+        
+        try:
+            # Audit log'dan kick ve ban işlemlerini al
+            async for entry in guild.audit_logs(
+                after=start_date,
+                before=end_date,
+                action=discord.AuditLogAction.kick,
+                limit=100
+            ):
+                kick_data = {
+                    'user_id': entry.target.id if entry.target else 0,
+                    'username': str(entry.target) if entry.target else "Bilinmeyen Kullanıcı",
+                    'moderator_id': entry.user.id if entry.user else 0,
+                    'moderator_name': str(entry.user) if entry.user else "Bilinmeyen Moderatör",
+                    'reason': entry.reason,
+                    'action_time': entry.created_at
+                }
+                moderation_data['kicks'].append(kick_data)
+            
+            async for entry in guild.audit_logs(
+                after=start_date,
+                before=end_date,
+                action=discord.AuditLogAction.ban,
+                limit=100
+            ):
+                ban_data = {
+                    'user_id': entry.target.id if entry.target else 0,
+                    'username': str(entry.target) if entry.target else "Bilinmeyen Kullanıcı",
+                    'moderator_id': entry.user.id if entry.user else 0,
+                    'moderator_name': str(entry.user) if entry.user else "Bilinmeyen Moderatör",
+                    'reason': entry.reason,
+                    'action_time': entry.created_at
+                }
+                moderation_data['bans'].append(ban_data)
+            
+            moderation_data['total'] = len(moderation_data['kicks']) + len(moderation_data['bans'])
+            
+        except discord.Forbidden:
+            # Audit log izni yok
+            pass
+        except Exception as e:
+            print(f"Moderation actions alınırken hata: {e}")
+        
+        return moderation_data
+    
     async def cleanup_old_data_after_report(self, report_start_date):
         """Haftalık rapor gönderildikten sonra eski verileri temizler"""
         try:
@@ -584,6 +636,73 @@ class WeeklyReports(commands.Cog):
             except Exception as e:
                 embed.add_field(
                     name="🛡️ Yetkili Kadro Değişiklikleri",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === MODERATION İŞLEMLERİ (Kick/Ban) ===
+            try:
+                moderation_actions = await self.get_moderation_actions(guild, start_date, end_date)
+                if moderation_actions['total'] > 0:
+                    lines = []
+                    # Özet istatistikleri
+                    lines.append(f"**Toplam İşlem:** {moderation_actions['total']}")
+                    if moderation_actions['kicks']:
+                        lines.append(f"• Atılan: {len(moderation_actions['kicks'])} kişi")
+                    if moderation_actions['bans']:
+                        lines.append(f"• Yasaklanan: {len(moderation_actions['bans'])} kişi")
+                    
+                    # Detaylı liste (maksimum 8 kişi)
+                    all_actions = []
+                    
+                    # Kick işlemleri
+                    for kick in moderation_actions['kicks']:
+                        action_time = kick['action_time'].astimezone(self.turkey_tz).strftime('%d.%m %H:%M')
+                        reason = kick['reason'] or "Sebep belirtilmedi"
+                        if len(reason) > 50:
+                            reason = reason[:47] + "..."
+                        all_actions.append({
+                            'time': kick['action_time'],
+                            'text': f"🦶 **{action_time}** - <@{kick['user_id']}>\n└ Sebep: {reason}"
+                        })
+                    
+                    # Ban işlemleri
+                    for ban in moderation_actions['bans']:
+                        action_time = ban['action_time'].astimezone(self.turkey_tz).strftime('%d.%m %H:%M')
+                        reason = ban['reason'] or "Sebep belirtilmedi"
+                        if len(reason) > 50:
+                            reason = reason[:47] + "..."
+                        all_actions.append({
+                            'time': ban['action_time'],
+                            'text': f"🔨 **{action_time}** - <@{ban['user_id']}>\n└ Sebep: {reason}"
+                        })
+                    
+                    # Zamana göre sırala (en yeni önce)
+                    all_actions.sort(key=lambda x: x['time'], reverse=True)
+                    
+                    # İlk 8 tanesini göster
+                    if all_actions:
+                        lines.append("")  # Boş satır
+                        for action in all_actions[:8]:
+                            lines.append(action['text'])
+                        
+                        if len(all_actions) > 8:
+                            lines.append(f"\n*...ve {len(all_actions) - 8} işlem daha*")
+                    
+                    embed.add_field(
+                        name="⚖️ Moderation İşlemleri",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="⚖️ Moderation İşlemleri",
+                        value="Bu hafta kick/ban işlemi gerçekleştirilmedi.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="⚖️ Moderation İşlemleri",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )
