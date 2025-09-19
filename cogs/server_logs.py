@@ -146,7 +146,7 @@ class ServerLogs(commands.Cog):
         # Embed oluştur
         embed = discord.Embed(
             title="Mesaj Silindi",
-            description=f"**Kanal:** {message.channel.mention}\n"
+            description=f"**Kanal:** {message.channel.mention} #{message.channel.name} ({message.channel.id})\n"
                         f"**Yazar:** {message.author.mention} ({message.author.name})\n"
                         f"**Mesaj ID:** {message.id}",
             color=discord.Color.red(),
@@ -261,7 +261,7 @@ class ServerLogs(commands.Cog):
                 # Silinen mesajın özet embed'i (özellikle log embed'leri için)
                 deleted_summary = discord.Embed(
                     title="Silinen Log Mesajı",
-                    description=f"**Kanal:** {message.channel.mention} ({message.channel.name})\n"
+                    description=f"**Kanal:** {message.channel.mention} #{message.channel.name} ({message.channel.id})\n"
                                 f"**Mesaj ID:** {message.id}",
                     color=discord.Color.red(),
                     timestamp=datetime.datetime.now(self.turkey_tz)
@@ -360,7 +360,7 @@ class ServerLogs(commands.Cog):
         # Embed oluştur
         embed = discord.Embed(
             title="Mesaj Düzenlendi",
-            description=f"**Kanal:** {before.channel.mention}\n"
+            description=f"**Kanal:** {before.channel.mention} #{before.channel.name} ({before.channel.id})\n"
                         f"**Yazar:** {before.author.mention} ({before.author.name})\n"
                         f"**Mesaj ID:** {before.id}\n"
                         f"**Bağlantı:** [Mesaja Git]({after.jump_url})",
@@ -416,20 +416,20 @@ class ServerLogs(commands.Cog):
             # Ses kanalına katılma
             embed.title = "Ses Kanalına Katıldı"
             embed.description = f"**Kullanıcı:** {member.mention} ({member.name})\n" \
-                              f"**Kanal:** {after.channel.mention} ({after.channel.name})"
+                              f"**Kanal:** {after.channel.mention} #{after.channel.name} ({after.channel.id})"
         
         elif before.channel is not None and after.channel is None:
             # Ses kanalından ayrılma
             embed.title = "Ses Kanalından Ayrıldı"
             embed.description = f"**Kullanıcı:** {member.mention} ({member.name})\n" \
-                              f"**Kanal:** {before.channel.mention} ({before.channel.name})"
+                              f"**Kanal:** {before.channel.mention} #{before.channel.name} ({before.channel.id})"
         
         elif before.channel != after.channel:
             # Ses kanalı değiştirme
             embed.title = "Ses Kanalı Değiştirildi"
             embed.description = f"**Kullanıcı:** {member.mention} ({member.name})\n" \
-                              f"**Önceki Kanal:** {before.channel.mention} ({before.channel.name})\n" \
-                              f"**Yeni Kanal:** {after.channel.mention} ({after.channel.name})"
+                              f"**Önceki Kanal:** {before.channel.mention} #{before.channel.name} ({before.channel.id})\n" \
+                              f"**Yeni Kanal:** {after.channel.mention} #{after.channel.name} ({after.channel.id})"
         
         # Ses durumu değişiklikleri
         if before.self_mute != after.self_mute:
@@ -636,8 +636,7 @@ class ServerLogs(commands.Cog):
         
         embed = discord.Embed(
             title="Kanal Oluşturuldu",
-            description=f"**Kanal:** {channel.mention} ({channel.name})\n"
-                        f"**Kanal ID:** {channel.id}\n"
+            description=f"**Kanal:** {channel.mention} #{channel.name} ({channel.id})\n"
                         f"**Kanal Türü:** {str(channel.type).replace('_', ' ').title()}\n"
                         f"{executor_info}",
             color=discord.Color.green(),
@@ -663,8 +662,7 @@ class ServerLogs(commands.Cog):
         
         embed = discord.Embed(
             title="Kanal Silindi",
-            description=f"**Kanal:** #{channel.name}\n"
-                        f"**Kanal ID:** {channel.id}\n"
+            description=f"**Kanal:** #{channel.name} ({channel.id})\n"
                         f"**Kanal Türü:** {str(channel.type).replace('_', ' ').title()}\n"
                         f"{executor_info}",
             color=discord.Color.red(),
@@ -725,8 +723,7 @@ class ServerLogs(commands.Cog):
             
             embed = discord.Embed(
                 title="Kanal Güncellendi",
-                description=f"**Kanal:** {after.mention} ({after.name})\n"
-                            f"**Kanal ID:** {after.id}\n"
+                description=f"**Kanal:** {after.mention} #{after.name} ({after.id})\n"
                             f"{executor_info}",
                 color=discord.Color.gold(),
                 timestamp=datetime.datetime.now(self.turkey_tz)
