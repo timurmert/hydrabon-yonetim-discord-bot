@@ -497,7 +497,7 @@ class ExtraFeatures(commands.Cog):
         if message.content.startswith('https://') or message.content.startswith('http://'):
             if message.channel.id == self.WELCOME_CHANNEL_ID:
                 await message.delete()
-                msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1029089834435878993> kanalına atmanız gerekmektedir.')
+                msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1406432595679383572> kanalına atmanız gerekmektedir.')
                 await msg.delete(delay=4)
                 return
 
