@@ -736,8 +736,8 @@ class WeeklyReports(commands.Cog):
                         1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
                     }
                 
-                # Veritabanından tüm yetkili mesaj verilerini al (limit artırıldı)
-                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
+                # Veritabanından tüm yetkili mesaj verilerini al
+                message_stats = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
                 
                 # Yetkili çevrim içi saatleri verilerini al
                 staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
@@ -750,18 +750,24 @@ class WeeklyReports(commands.Cog):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in excluded_role_ids)
                 
+                # Mesaj istatistiklerini dictionary'ye çevir
+                message_stats_dict = {stat['user_id']: stat['total_messages'] for stat in message_stats}
+                
                 # Online saatleri dictionary'ye çevir
                 online_stats_dict = {stat['user_id']: stat for stat in staff_online_stats}
                 
+                # Tüm yetkililer için results listesi oluştur
                 results = []
-                for row in top_candidates:
-                    member = guild.get_member(row['user_id'])
-                    if not member:
-                        continue
+                
+                # Sunucudaki tüm üyeleri kontrol et
+                for member in guild.members:
                     if not is_included_staff(member):
                         continue
                     if is_excluded(member):
                         continue
+                    
+                    # Mesaj sayısını al (yoksa 0)
+                    msg_count = message_stats_dict.get(member.id, 0)
                     
                     # Online istatistiklerini al
                     online_data = online_stats_dict.get(member.id, {
@@ -769,7 +775,7 @@ class WeeklyReports(commands.Cog):
                         'daily_average': 0
                     })
                     
-                    results.append((member, row['total_messages'], online_data['total_hours'], online_data['daily_average']))
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average']))
                 
                 # Sırala (mesaj sayısına göre, sonra online saatlere göre)
                 results.sort(key=lambda x: (x[1], x[2]), reverse=True)
