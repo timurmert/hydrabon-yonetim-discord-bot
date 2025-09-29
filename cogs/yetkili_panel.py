@@ -1557,8 +1557,16 @@ class OtomatikMesajEkleModal(discord.ui.Modal, title="Otomatik Mesaj Ekle"):
                 tekrar_sayisi,
                 schedule_data # zaman_araligi yerine schedule_data
             )
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {view.sayfa + 1}/{view.toplam_sayfa} • Toplam {len(view.text_channels)} kanal")
+            
             await interaction.response.send_message(
-                "Mesajın gönderileceği kanalı seçin:",
+                embed=embed,
                 view=view,
                 ephemeral=True
             )
@@ -1570,7 +1578,7 @@ class OtomatikMesajEkleModal(discord.ui.Modal, title="Otomatik Mesaj Ekle"):
             await interaction.response.send_message(f"Bir hata oluştu: {e}", ephemeral=True)
 
 class KanalSecimView(discord.ui.View):
-    def __init__(self, cog, user, mesaj_icerik, tekrar_sayisi, schedule_data): # zaman_araligi -> schedule_data
+    def __init__(self, cog, user, mesaj_icerik, tekrar_sayisi, schedule_data, sayfa=0): # zaman_araligi -> schedule_data
         super().__init__(timeout=300)
         self.cog = cog
         self.user = user
@@ -1578,8 +1586,92 @@ class KanalSecimView(discord.ui.View):
         self.tekrar_sayisi = tekrar_sayisi
         self.schedule_data = schedule_data # Değişti
         self.message = None 
+        self.sayfa = sayfa
         
+        # Tüm kanalları al
+        self.text_channels = []
+        guild = self.user.guild
+        for channel in guild.text_channels:
+            # Kullanıcının mesaj gönderebileceği kanallar
+            member_permissions = channel.permissions_for(self.user)
+            if member_permissions.send_messages and member_permissions.view_channel:
+                self.text_channels.append(channel)
+        
+        # Toplam sayfa sayısı
+        self.toplam_sayfa = (len(self.text_channels) - 1) // 25 + 1
+        
+        self.setup_view()
+    
+    def setup_view(self):
+        """View'ı ayarla"""
+        self.clear_items()
+        
+        # Kanal seçim menüsü ekle
         self.add_item(KanalSecimMenu(self))
+        
+        # Sayfa geçiş butonları ekle (eğer birden fazla sayfa varsa)
+        if self.toplam_sayfa > 1:
+            if self.sayfa > 0:
+                onceki_buton = discord.ui.Button(
+                    label="◀ Önceki Sayfa",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="onceki_sayfa_secim"
+                )
+                onceki_buton.callback = self.onceki_sayfa_callback
+                self.add_item(onceki_buton)
+            
+            if self.sayfa < self.toplam_sayfa - 1:
+                sonraki_buton = discord.ui.Button(
+                    label="Sonraki Sayfa ▶",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="sonraki_sayfa_secim"
+                )
+                sonraki_buton.callback = self.sonraki_sayfa_callback
+                self.add_item(sonraki_buton)
+            
+            # Sayfa bilgisi butonu
+            sayfa_info = discord.ui.Button(
+                label=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa}",
+                style=discord.ButtonStyle.primary,
+                disabled=True
+            )
+            self.add_item(sayfa_info)
+    
+    async def onceki_sayfa_callback(self, interaction: discord.Interaction):
+        """Önceki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa > 0:
+            self.sayfa -= 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def sonraki_sayfa_callback(self, interaction: discord.Interaction):
+        """Sonraki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa < self.toplam_sayfa - 1:
+            self.sayfa += 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
     
     async def on_timeout(self):
         """Timeout olduğunda butonları devre dışı bırakma"""
@@ -1594,28 +1686,21 @@ class KanalSecimMenu(discord.ui.Select):
     def __init__(self, ana_view):
         self.ana_view = ana_view
         
-        # Görünür tüm metin kanallarını al
-        text_channels = []
-        guild = self.ana_view.user.guild
-        for channel in guild.text_channels:
-            # Kullanıcının mesaj gönderebileceği kanallar
-            member_permissions = channel.permissions_for(self.ana_view.user)
-            if member_permissions.send_messages and member_permissions.view_channel:
-                text_channels.append(channel)
-        
-        # En fazla 25 kanal gösterebiliriz (Discord limiti)
-        text_channels = text_channels[:25]
+        # Mevcut sayfa için kanalları al
+        baslangic = ana_view.sayfa * 25
+        bitis = min(baslangic + 25, len(ana_view.text_channels))
+        sayfa_kanallari = ana_view.text_channels[baslangic:bitis]
         
         options = [
             discord.SelectOption(
-                label=f"#{channel.name}",
+                label=f"#{channel.name}"[:100],  # Discord label limiti
                 value=str(channel.id),
-                description=f"ID: {channel.id}"
-            ) for channel in text_channels
+                description=f"ID: {channel.id} • Kategori: {channel.category.name if channel.category else 'Yok'}"[:100]
+            ) for channel in sayfa_kanallari
         ]
         
         super().__init__(
-            placeholder="Mesajın gönderileceği kanalı seçin...",
+            placeholder=f"Kanal seçin... (Sayfa {ana_view.sayfa + 1}/{ana_view.toplam_sayfa})",
             min_values=1,
             max_values=1,
             options=options
@@ -2113,14 +2198,98 @@ class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
             await interaction.response.send_message(f"Bir hata oluştu: {str(e)}", ephemeral=True)
 
 class KanalDuzenleView(discord.ui.View):
-    def __init__(self, cog, user, mesaj):
+    def __init__(self, cog, user, mesaj, sayfa=0):
         super().__init__(timeout=300)
         self.cog = cog
         self.user = user
         self.mesaj = mesaj
         self.message = None
+        self.sayfa = sayfa
         
+        # Tüm kanalları al
+        self.text_channels = []
+        guild = self.user.guild
+        for channel in guild.text_channels:
+            # Kullanıcının mesaj gönderebileceği kanallar
+            member_permissions = channel.permissions_for(self.user)
+            if member_permissions.send_messages and member_permissions.view_channel:
+                self.text_channels.append(channel)
+        
+        # Toplam sayfa sayısı
+        self.toplam_sayfa = (len(self.text_channels) - 1) // 25 + 1
+        
+        self.setup_view()
+    
+    def setup_view(self):
+        """View'ı ayarla"""
+        self.clear_items()
+        
+        # Kanal seçim menüsü ekle
         self.add_item(KanalDuzenleMenu(self))
+        
+        # Sayfa geçiş butonları ekle (eğer birden fazla sayfa varsa)
+        if self.toplam_sayfa > 1:
+            if self.sayfa > 0:
+                onceki_buton = discord.ui.Button(
+                    label="◀ Önceki Sayfa",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="onceki_sayfa"
+                )
+                onceki_buton.callback = self.onceki_sayfa_callback
+                self.add_item(onceki_buton)
+            
+            if self.sayfa < self.toplam_sayfa - 1:
+                sonraki_buton = discord.ui.Button(
+                    label="Sonraki Sayfa ▶",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="sonraki_sayfa"
+                )
+                sonraki_buton.callback = self.sonraki_sayfa_callback
+                self.add_item(sonraki_buton)
+            
+            # Sayfa bilgisi butonu
+            sayfa_info = discord.ui.Button(
+                label=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa}",
+                style=discord.ButtonStyle.primary,
+                disabled=True
+            )
+            self.add_item(sayfa_info)
+    
+    async def onceki_sayfa_callback(self, interaction: discord.Interaction):
+        """Önceki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa > 0:
+            self.sayfa -= 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def sonraki_sayfa_callback(self, interaction: discord.Interaction):
+        """Sonraki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa < self.toplam_sayfa - 1:
+            self.sayfa += 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
     
     async def on_timeout(self):
         """Timeout olduğunda butonları devre dışı bırakma"""
@@ -2135,28 +2304,21 @@ class KanalDuzenleMenu(discord.ui.Select):
     def __init__(self, ana_view):
         self.ana_view = ana_view
         
-        # Görünür tüm metin kanallarını al
-        text_channels = []
-        guild = self.ana_view.user.guild
-        for channel in guild.text_channels:
-            # Kullanıcının mesaj gönderebileceği kanallar
-            member_permissions = channel.permissions_for(self.ana_view.user)
-            if member_permissions.send_messages and member_permissions.view_channel:
-                text_channels.append(channel)
-        
-        # En fazla 25 kanal gösterebiliriz (Discord limiti)
-        text_channels = text_channels[:25]
+        # Mevcut sayfa için kanalları al
+        baslangic = ana_view.sayfa * 25
+        bitis = min(baslangic + 25, len(ana_view.text_channels))
+        sayfa_kanallari = ana_view.text_channels[baslangic:bitis]
         
         options = [
             discord.SelectOption(
-                label=f"#{channel.name}",
+                label=f"#{channel.name}"[:100],  # Discord label limiti
                 value=str(channel.id),
-                description=f"ID: {channel.id}"
-            ) for channel in text_channels
+                description=f"ID: {channel.id} • Kategori: {channel.category.name if channel.category else 'Yok'}"[:100]
+            ) for channel in sayfa_kanallari
         ]
         
         super().__init__(
-            placeholder="Mesajın gönderileceği yeni kanalı seçin...",
+            placeholder=f"Kanal seçin... (Sayfa {ana_view.sayfa + 1}/{ana_view.toplam_sayfa})",
             min_values=1,
             max_values=1,
             options=options
@@ -2627,8 +2789,16 @@ class MesajDetayView(discord.ui.View):
         
         # Kanal düzenleme view'ını göster
         view = KanalDuzenleView(self.cog, self.user, self.mesaj)
+        
+        embed = discord.Embed(
+            title="📋 Kanal Seç",
+            description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+            color=0x3498db
+        )
+        embed.set_footer(text=f"Sayfa {view.sayfa + 1}/{view.toplam_sayfa} • Toplam {len(view.text_channels)} kanal")
+        
         await interaction.response.send_message(
-            "Mesajın gönderileceği yeni kanalı seçin:",
+            embed=embed,
             view=view,
             ephemeral=True
         )
