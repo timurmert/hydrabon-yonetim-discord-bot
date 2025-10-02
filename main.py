@@ -177,7 +177,6 @@ async def load_extensions():
         'cogs.extra_features', # Ekstra özellikler sistemi
         'cogs.bump_tracker',   # Bump takip sistemi
         'cogs.weekly_reports', # Haftalık rapor sistemi
-        'cogs.user_notes',     # Kullanıcı notları sistemi
         'cogs.system_monitor'  # Sistem izleme ve uyarı modülü
     ]
     
