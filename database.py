@@ -1439,17 +1439,33 @@ class Database:
             return affected_rows > 0
     
     async def search_user_notes(self, search_term, guild_id, limit=50, offset=0):
-        """Kullanıcı adı veya not içeriğinde arama yapar"""
+        """Kullanıcı ID veya not içeriğinde arama yapar"""
         async with self.connection.cursor() as cursor:
             search_pattern = f"%{search_term}%"
-            await cursor.execute('''
-            SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
-                   created_at, updated_at
-            FROM user_notes 
-            WHERE guild_id = ? AND (username LIKE ? OR note_content LIKE ?)
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            ''', (guild_id, search_pattern, search_pattern, limit, offset))
+            
+            # Kullanıcı ID ile arama yapıp yapmadığını kontrol et
+            is_user_id_search = search_term.isdigit()
+            
+            if is_user_id_search:
+                # Kullanıcı ID ile arama
+                await cursor.execute('''
+                SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
+                       created_at, updated_at
+                FROM user_notes 
+                WHERE guild_id = ? AND user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                ''', (guild_id, int(search_term), limit, offset))
+            else:
+                # Not içeriği ile arama
+                await cursor.execute('''
+                SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
+                       created_at, updated_at
+                FROM user_notes 
+                WHERE guild_id = ? AND note_content LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                ''', (guild_id, search_pattern, limit, offset))
             
             notes = []
             for row in await cursor.fetchall():

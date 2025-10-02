@@ -2963,7 +2963,9 @@ class KullaniciNotlariView(discord.ui.View):
         if recent_notes:
             notes_text = ""
             for note in recent_notes:
-                created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m %H:%M')
+                created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+                created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+                created_date = created_date_tr.strftime('%d.%m %H:%M')
                 content_preview = note['note_content'][:80] + "..." if len(note['note_content']) > 80 else note['note_content']
                 notes_text += f"**#{note['id']}** - <@{note['user_id']}> ({note['username']})\n"
                 notes_text += f"└ {content_preview}\n"
@@ -2978,7 +2980,7 @@ class KullaniciNotlariView(discord.ui.View):
         embed.set_footer(text=f"Sayfa {self.current_page + 1} • Kullanım: Aşağıdaki butonları kullanın")
         return embed
     
-    @discord.ui.button(label="➕ Not Ekle", style=discord.ButtonStyle.green, emoji="➕", row=0)
+    @discord.ui.button(label="Not Ekle", style=discord.ButtonStyle.green, emoji="➕", row=0)
     async def add_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not ekleme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2987,7 +2989,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = AddNoteModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="✏️ Not Düzenle", style=discord.ButtonStyle.blurple, emoji="✏️", row=0)
+    @discord.ui.button(label="Not Düzenle", style=discord.ButtonStyle.blurple, emoji="✏️", row=0)
     async def edit_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not düzenleme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2996,7 +2998,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = EditNoteModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="🗑️ Not Sil", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    @discord.ui.button(label="Not Sil", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
     async def delete_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not silme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -3005,7 +3007,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = DeleteNoteModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="🔍 Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=1)
+    @discord.ui.button(label="Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=1)
     async def search_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not arama modalını açar"""
         if interaction.user.id != self.user.id:
@@ -3014,7 +3016,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = SearchNotesModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="👤 Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=1)
+    @discord.ui.button(label="Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=1)
     async def filter_user_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Kullanıcıya göre filtreleme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -3023,7 +3025,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = FilterUserModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📊 Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
+    @discord.ui.button(label="Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
     async def detailed_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Detaylı istatistikleri gösterir"""
         if interaction.user.id != self.user.id:
@@ -3031,7 +3033,7 @@ class KullaniciNotlariView(discord.ui.View):
         
         await self.show_detailed_stats(interaction)
     
-    @discord.ui.button(label="⬅️ Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=2)
+    @discord.ui.button(label="Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=2)
     async def previous_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Önceki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -3044,7 +3046,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu ilk sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="➡️ Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=2)
+    @discord.ui.button(label="Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=2)
     async def next_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sonraki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -3061,7 +3063,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu son sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=3)
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=3)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ana panele dön"""
         if interaction.user.id != self.user.id:
@@ -3154,7 +3156,7 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
         
     search_term = discord.ui.TextInput(
         label="Arama Terimi",
-        placeholder="Kullanıcı adı veya not içeriği...",
+        placeholder="Kullanıcı ID (örn: 123456789) veya not içeriği...",
         max_length=100,
         required=True
     )
@@ -3164,26 +3166,31 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
         notes = await db.search_user_notes(self.search_term.value, interaction.guild.id, limit=10)
         
         if not notes:
+            search_type = "Kullanıcı ID" if self.search_term.value.isdigit() else "Not içeriği"
             await interaction.response.send_message(
-                f"🔍 `{self.search_term.value}` için sonuç bulunamadı.",
+                f"🔍 `{self.search_term.value}` {search_type} için sonuç bulunamadı.",
                 ephemeral=True
             )
             return
         
+        search_type = "Kullanıcı ID" if self.search_term.value.isdigit() else "Not içeriği"
         embed = discord.Embed(
             title=f"🔍 Arama Sonuçları: '{self.search_term.value}'",
-            description=f"**Bulunan Not Sayısı:** {len(notes)}",
+            description=f"**Arama Türü:** {search_type}\n**Bulunan Not Sayısı:** {len(notes)}",
             color=0x3498db,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         for note in notes[:5]:  # İlk 5 sonucu göster
-            created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+            created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+            created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+            created_date = created_date_tr.strftime('%d.%m.%Y %H:%M')
             content_preview = note['note_content'][:150] + "..." if len(note['note_content']) > 150 else note['note_content']
             
             embed.add_field(
                 name=f"Not #{note['id']} - {note['username']}",
-                value=f"**İçerik:** {content_preview}\n"
+                value=f"**Kullanıcı ID:** `{note['user_id']}`\n"
+                      f"**İçerik:** {content_preview}\n"
                       f"**Ekleyen:** {note['created_by_username']}\n"
                       f"**Tarih:** {created_date}",
                 inline=False
@@ -3259,7 +3266,9 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
         )
         
         for note in notes[:5]:  # İlk 5 notu göster
-            created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+            created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+            created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+            created_date = created_date_tr.strftime('%d.%m.%Y %H:%M')
             content_preview = note['note_content'][:200] + "..." if len(note['note_content']) > 200 else note['note_content']
             
             embed.add_field(
