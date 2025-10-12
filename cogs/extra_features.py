@@ -106,7 +106,7 @@ class ExtraFeatures(commands.Cog):
             "Hoş geldin {}, bir gün neyi başarmış olmak istersin?",
             "Hey {}, topluluk içinde yeni insanlarla tanışırken ilk sorduğun soru ne olur?",
             "Selam {}, buradaki enerjini hangi emojiyle anlatırsın?",
-            "{} geldi! HydRaboN’da unutulmaz bir an yaşasan, bu nasıl bir an olurdu?"
+            "{} geldi! HydRaboN’da unutulmaz bir an yaşasan, bu nasıl bir an olurdu?",
             "Hey {}, aramıza hoş geldin! İlk HydRaboN anın unutulmaz olsun!",
             "Merhaba {}, HydRaboN'un kalbine hoş geldin! Sevdiğin bir şarkıyı bizimle paylaşarak başlamaya ne dersin?",
             "Selam {}, cesurların arasına hoş geldin! Hangi zorluğu aşmayı hedefliyorsun?",
