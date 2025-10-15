@@ -563,6 +563,100 @@ class ServerLogs(commands.Cog):
             await self.send_log_embed(member.guild, embed)
 
     @commands.Cog.listener()
+    async def on_member_ban(self, guild, user):
+        """Sunucudan yasaklanan üyeleri loglar"""
+        # Audit log'dan ban bilgilerini al
+        executor = None
+        reason = None
+        
+        try:
+            async for entry in guild.audit_logs(action=discord.AuditLogAction.ban, limit=5):
+                if entry.target.id == user.id:
+                    # Son 10 saniye içindeki ban işlemleri
+                    time_diff = (datetime.datetime.now(datetime.timezone.utc) - entry.created_at).total_seconds()
+                    if time_diff <= 10:
+                        executor = entry.user
+                        reason = entry.reason
+                        break
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        
+        # Embed oluştur
+        embed = discord.Embed(
+            title="🔨 Üye Yasaklandı (Ban)",
+            description=f"**Kullanıcı:** {user.mention} ({user.name})\n"
+                        f"**ID:** {user.id}",
+            color=discord.Color.dark_red(),
+            timestamp=datetime.datetime.now(self.turkey_tz)
+        )
+        
+        # Sebep varsa ekle
+        if reason:
+            embed.add_field(name="Sebep", value=reason, inline=False)
+        else:
+            embed.add_field(name="Sebep", value="Belirtilmemiş", inline=False)
+        
+        # Kullanıcı avatarı
+        embed.set_thumbnail(url=user.display_avatar.url)
+        
+        # İşlemi yapan
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {user.id} | İşlemi Yapan ID: {executor.id}")
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {user.id}")
+        
+        await self.send_log_embed(guild, embed)
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild, user):
+        """Sunucudan ban kaldırılan üyeleri loglar"""
+        # Audit log'dan unban bilgilerini al
+        executor = None
+        reason = None
+        
+        try:
+            async for entry in guild.audit_logs(action=discord.AuditLogAction.unban, limit=5):
+                if entry.target.id == user.id:
+                    # Son 10 saniye içindeki unban işlemleri
+                    time_diff = (datetime.datetime.now(datetime.timezone.utc) - entry.created_at).total_seconds()
+                    if time_diff <= 10:
+                        executor = entry.user
+                        reason = entry.reason
+                        break
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        
+        # Embed oluştur
+        embed = discord.Embed(
+            title="✅ Üye Yasağı Kaldırıldı (Unban)",
+            description=f"**Kullanıcı:** {user.mention} ({user.name})\n"
+                        f"**ID:** {user.id}",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(self.turkey_tz)
+        )
+        
+        # Sebep varsa ekle
+        if reason:
+            embed.add_field(name="Sebep", value=reason, inline=False)
+        else:
+            embed.add_field(name="Sebep", value="Belirtilmemiş", inline=False)
+        
+        # Kullanıcı avatarı
+        embed.set_thumbnail(url=user.display_avatar.url)
+        
+        # İşlemi yapan
+        if executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {user.id} | İşlemi Yapan ID: {executor.id}")
+        else:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {user.id}")
+        
+        await self.send_log_embed(guild, embed)
+
+    @commands.Cog.listener()
     async def on_member_join(self, member):
         """Sunucuya katılan üyeleri loglar"""
         # Hesap yaşını hesapla
@@ -589,7 +683,25 @@ class ServerLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
-        """Sunucudan ayrılan üyeleri loglar"""
+        """Sunucudan ayrılan/atılan üyeleri loglar"""
+        # Audit log'dan kick bilgilerini kontrol et
+        executor = None
+        reason = None
+        is_kick = False
+        
+        try:
+            async for entry in member.guild.audit_logs(action=discord.AuditLogAction.kick, limit=5):
+                if entry.target.id == member.id:
+                    # Son 10 saniye içindeki kick işlemleri
+                    time_diff = (datetime.datetime.now(datetime.timezone.utc) - entry.created_at).total_seconds()
+                    if time_diff <= 10:
+                        executor = entry.user
+                        reason = entry.reason
+                        is_kick = True
+                        break
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        
         # Katılma bilgisini al
         joined_at = member.joined_at
         if joined_at:
@@ -598,16 +710,33 @@ class ServerLogs(commands.Cog):
         else:
             joined_text = "Bilinmiyor"
         
-        # Embed oluştur
-        embed = discord.Embed(
-            title="Üye Ayrıldı",
-            description=f"**Kullanıcı:** {member.mention} ({member.name})\n"
-                        f"**ID:** {member.id}\n"
-                        f"**Katılma Tarihi:** {joined_text}\n"
-                        f"**Rol Sayısı:** {len(member.roles) - 1}",  # @everyone rolünü çıkart
-            color=discord.Color.red(),
-            timestamp=datetime.datetime.now(self.turkey_tz)
-        )
+        # Embed oluştur - kick ise farklı başlık ve renk
+        if is_kick:
+            embed = discord.Embed(
+                title="👢 Üye Atıldı (Kick)",
+                description=f"**Kullanıcı:** {member.mention} ({member.name})\n"
+                            f"**ID:** {member.id}\n"
+                            f"**Katılma Tarihi:** {joined_text}\n"
+                            f"**Rol Sayısı:** {len(member.roles) - 1}",
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now(self.turkey_tz)
+            )
+        else:
+            embed = discord.Embed(
+                title="Üye Ayrıldı",
+                description=f"**Kullanıcı:** {member.mention} ({member.name})\n"
+                            f"**ID:** {member.id}\n"
+                            f"**Katılma Tarihi:** {joined_text}\n"
+                            f"**Rol Sayısı:** {len(member.roles) - 1}",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.now(self.turkey_tz)
+            )
+        
+        # Kick sebep varsa ekle
+        if is_kick and reason:
+            embed.add_field(name="Sebep", value=reason, inline=False)
+        elif is_kick:
+            embed.add_field(name="Sebep", value="Belirtilmemiş", inline=False)
         
         # Kullanıcının rollerini listele (eğer varsa)
         if len(member.roles) > 1:  # @everyone dışında rol varsa
@@ -622,14 +751,94 @@ class ServerLogs(commands.Cog):
         # Kullanıcı avatarı
         embed.set_thumbnail(url=member.display_avatar.url)
         
-        # İşlemi yapan (kullanıcının kendisi)
-        embed.add_field(name="İşlemi Yapan", value=f"{member.mention} ({member.name})", inline=False)
+        # İşlemi yapan
+        if is_kick and executor:
+            embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {member.id} | İşlemi Yapan ID: {executor.id}")
+        elif is_kick:
+            embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {member.id}")
+        else:
+            # Normal ayrılma
+            embed.add_field(name="İşlemi Yapan", value=f"{member.mention} ({member.name})", inline=False)
+            embed.set_footer(text=f"Kullanıcı ID: {member.id}")
         
         await self.send_log_embed(member.guild, embed)
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
-        """Üye güncellemelerini loglar (Nickname, rol değişiklikleri)"""
+        """Üye güncellemelerini loglar (Nickname, rol değişiklikleri, timeout)"""
+        # Timeout (zaman aşımı) kontrolü
+        if before.timed_out_until != after.timed_out_until:
+            executor = None
+            reason = None
+            
+            try:
+                # Audit log'dan timeout bilgilerini al
+                async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_update, limit=10):
+                    if hasattr(entry, 'target') and entry.target and entry.target.id == after.id:
+                        # Son 10 saniye içindeki işlemler
+                        time_diff = (datetime.datetime.now(datetime.timezone.utc) - entry.created_at).total_seconds()
+                        if time_diff <= 10:
+                            # Timeout değişikliği var mı kontrol et
+                            if hasattr(entry, 'changes') and entry.changes:
+                                for change in entry.changes.before:
+                                    if change.key == 'communication_disabled_until':
+                                        executor = entry.user
+                                        reason = entry.reason
+                                        break
+                            if executor:
+                                break
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            
+            # Timeout uygulandı mı yoksa kaldırıldı mı?
+            if after.timed_out_until and after.timed_out_until > datetime.datetime.now(datetime.timezone.utc):
+                # Timeout uygulandı
+                embed = discord.Embed(
+                    title="⏰ Üyeye Zaman Aşımı Uygulandı (Timeout)",
+                    description=f"**Kullanıcı:** {after.mention} ({after.name})\n"
+                                f"**ID:** {after.id}\n"
+                                f"**Bitiş Tarihi:** {discord.utils.format_dt(after.timed_out_until, style='F')}\n"
+                                f"**Süre:** {discord.utils.format_dt(after.timed_out_until, style='R')}",
+                    color=discord.Color.dark_orange(),
+                    timestamp=datetime.datetime.now(self.turkey_tz)
+                )
+                
+                # Sebep varsa ekle
+                if reason:
+                    embed.add_field(name="Sebep", value=reason, inline=False)
+                else:
+                    embed.add_field(name="Sebep", value="Belirtilmemiş", inline=False)
+                
+            else:
+                # Timeout kaldırıldı veya süresi doldu
+                embed = discord.Embed(
+                    title="✅ Üye Zaman Aşımı Kaldırıldı",
+                    description=f"**Kullanıcı:** {after.mention} ({after.name})\n"
+                                f"**ID:** {after.id}",
+                    color=discord.Color.green(),
+                    timestamp=datetime.datetime.now(self.turkey_tz)
+                )
+                
+                # Sebep varsa ekle
+                if reason:
+                    embed.add_field(name="Sebep", value=reason, inline=False)
+            
+            # Kullanıcı avatarı
+            embed.set_thumbnail(url=after.display_avatar.url)
+            
+            # İşlemi yapan
+            if executor:
+                embed.add_field(name="İşlemi Yapan", value=f"{executor.mention} ({executor.name})", inline=False)
+                embed.set_footer(text=f"Kullanıcı ID: {after.id} | İşlemi Yapan ID: {executor.id}")
+            else:
+                embed.add_field(name="İşlemi Yapan", value="Belirlenemedi", inline=False)
+                embed.set_footer(text=f"Kullanıcı ID: {after.id}")
+            
+            await self.send_log_embed(after.guild, embed)
+        
+        # Nickname değişikliği
         if before.display_name != after.display_name:
             # Kullanıcı adı değişikliği
             embed = discord.Embed(
@@ -1145,6 +1354,9 @@ class ServerLogs(commands.Cog):
                       "• Ses Kanalı Hareketleri\n"
                       "• Üye Giriş/Çıkış\n"
                       "• Üye Güncellemeleri\n"
+                      "• Yasaklama (Ban/Unban)\n"
+                      "• Üye Atma (Kick)\n"
+                      "• Zaman Aşımı (Timeout)\n"
                       "• Kanal Oluşturma/Silme/Düzenleme\n"
                       "• Rol Oluşturma/Silme/Düzenleme",
                 inline=False
@@ -1230,7 +1442,7 @@ class ServerLogs(commands.Cog):
                 # Geçersiz davet linki, ama yine de uyar
                 await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
                 break  # İlk bulduğunda dur
-            except discord.HTTPException:
+            except discord.HTTPException as e:
                 print(f"Davet linki uyarısı gönderme hatası: {e}")
 
     async def send_invite_alert(self, member, invite, activity_text):
