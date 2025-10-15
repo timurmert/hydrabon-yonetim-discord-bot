@@ -654,9 +654,9 @@ class WeeklyReports(commands.Cog):
                     # Özet istatistikleri
                     lines.append(f"**Toplam İşlem:** {moderation_actions['total']}")
                     if moderation_actions['kicks']:
-                        lines.append(f"• Atılan: {len(moderation_actions['kicks'])} kişi")
+                        lines.append(f"• 👢 **Atma (Kick):** {len(moderation_actions['kicks'])} kişi")
                     if moderation_actions['bans']:
-                        lines.append(f"• Yasaklanan: {len(moderation_actions['bans'])} kişi")
+                        lines.append(f"• 🔨 **Yasaklama (Ban):** {len(moderation_actions['bans'])} kişi")
                     
                     # Detaylı liste (maksimum 8 kişi)
                     all_actions = []
@@ -669,7 +669,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': kick['action_time'],
-                            'text': f"🦶 **{action_time}** - <@{kick['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Sebep: {reason}"
                         })
                     
                     # Ban işlemleri
@@ -680,7 +680,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': ban['action_time'],
-                            'text': f"🔨 **{action_time}** - <@{ban['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Sebep: {reason}"
                         })
                     
                     # Zamana göre sırala (en yeni önce)
