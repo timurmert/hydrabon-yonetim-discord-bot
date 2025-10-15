@@ -3156,26 +3156,57 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
         
     search_term = discord.ui.TextInput(
         label="Arama Terimi",
-        placeholder="Kullanıcı ID (örn: 123456789) veya not içeriği...",
+        placeholder="Not ID (#123), Kullanıcı ID (123456789) veya not içeriği...",
         max_length=100,
         required=True
     )
     
     async def on_submit(self, interaction: discord.Interaction):
         db = await get_db()
-        notes = await db.search_user_notes(self.search_term.value, interaction.guild.id, limit=10)
+        search_value = self.search_term.value.strip()
+        notes = []
+        search_type = ""
+        
+        # Not ID ile arama (# ile başlıyorsa veya küçük sayıysa)
+        if search_value.startswith("#"):
+            note_id_str = search_value[1:].strip()
+            if note_id_str.isdigit():
+                note_id = int(note_id_str)
+                note = await db.get_note_by_id(note_id, interaction.guild.id)
+                if note:
+                    notes = [note]
+                search_type = f"Not ID (#{note_id})"
+        # Sayı ise - Not ID veya Kullanıcı ID olarak arama
+        elif search_value.isdigit():
+            num_value = int(search_value)
+            # Küçük sayılar (< 10000) muhtemelen Not ID
+            if num_value < 10000:
+                note = await db.get_note_by_id(num_value, interaction.guild.id)
+                if note:
+                    notes = [note]
+                    search_type = f"Not ID (#{num_value})"
+                else:
+                    # Not ID olarak bulunamadı, Kullanıcı ID olarak dene
+                    notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+                    search_type = "Kullanıcı ID"
+            else:
+                # Büyük sayılar muhtemelen Kullanıcı ID
+                notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+                search_type = "Kullanıcı ID"
+        else:
+            # Metin arama - not içeriğinde ara
+            notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+            search_type = "Not içeriği"
         
         if not notes:
-            search_type = "Kullanıcı ID" if self.search_term.value.isdigit() else "Not içeriği"
             await interaction.response.send_message(
-                f"🔍 `{self.search_term.value}` {search_type} için sonuç bulunamadı.",
+                f"🔍 `{search_value}` {search_type} için sonuç bulunamadı.",
                 ephemeral=True
             )
             return
         
-        search_type = "Kullanıcı ID" if self.search_term.value.isdigit() else "Not içeriği"
         embed = discord.Embed(
-            title=f"🔍 Arama Sonuçları: '{self.search_term.value}'",
+            title=f"🔍 Arama Sonuçları: '{search_value}'",
             description=f"**Arama Türü:** {search_type}\n**Bulunan Not Sayısı:** {len(notes)}",
             color=0x3498db,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
