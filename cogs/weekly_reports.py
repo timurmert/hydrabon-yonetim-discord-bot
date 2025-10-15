@@ -713,7 +713,7 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
-            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri ve Çevrim İçi Saatleri) ===
+            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri, Çevrim İçi Saatleri ve Bump Sayıları) ===
             try:
                 # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
@@ -741,6 +741,21 @@ class WeeklyReports(commands.Cog):
                 
                 # Yetkili çevrim içi saatleri verilerini al
                 staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
+                
+                # Bump istatistiklerini al (haftalık için özel sorgu)
+                # start_date ve end_date arasındaki bump verilerini al
+                bump_user_stats = {}
+                async with db.connection.cursor() as cursor:
+                    await cursor.execute('''
+                    SELECT user_id, COUNT(*) as bump_count
+                    FROM bump_logs
+                    WHERE guild_id = ? AND bump_time >= ? AND bump_time < ?
+                    GROUP BY user_id
+                    ''', (guild.id, start_date.isoformat(), end_date.isoformat()))
+                    
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        bump_user_stats[row[0]] = row[1]
                 
                 def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
@@ -775,15 +790,18 @@ class WeeklyReports(commands.Cog):
                         'daily_average': 0
                     })
                     
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average']))
+                    # Bump sayısını al (yoksa 0)
+                    bump_count = bump_user_stats.get(member.id, 0)
+                    
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count))
                 
-                # Sırala (mesaj sayısına göre, sonra online saatlere göre)
-                results.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra bump sayısına göre)
+                results.sort(key=lambda x: (x[1], x[2], x[4]), reverse=True)
                 
                 if results:
                     lines = []
-                    for i, (member, msg_count, online_hours, daily_avg) in enumerate(results, 1):
-                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f} saat online")
+                    for i, (member, msg_count, online_hours, daily_avg, bump_count) in enumerate(results, 1):
+                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {bump_count} bump")
                     
                     # Çok uzunsa bölümlere ayır
                     if len(lines) > 20:
@@ -794,19 +812,19 @@ class WeeklyReports(commands.Cog):
                         lines = first_20
                     
                     embed.add_field(
-                        name=f"👥 Aktif Yetkili Kadro - Mesaj & Online ({len(results)} kişi)",
+                        name=f"👥 Aktif Yetkili Kadro - Mesaj, Online & Bump ({len(results)} kişi)",
                         value="\n".join(lines),
                         inline=False
                     )
                 else:
                     embed.add_field(
-                        name="👥 Aktif Yetkili Kadro - Mesaj & Online",
+                        name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
                         value="Bu hafta yetkili kadrosunda aktivite bulunamadı.",
                         inline=False
                     )
             except Exception as e:
                 embed.add_field(
-                    name="👥 Aktif Yetkili Kadro - Mesaj & Online",
+                    name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )
