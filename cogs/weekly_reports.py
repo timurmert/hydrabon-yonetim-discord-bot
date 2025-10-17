@@ -558,6 +558,39 @@ class WeeklyReports(commands.Cog):
                 inline=True
             )
             
+            # === KAYIT SİSTEMİ İSTATİSTİKLERİ ===
+            try:
+                registration_stats = await db.get_registration_stats(start_date, end_date)
+                
+                if registration_stats['total_registrations'] > 0:
+                    reg_value = f"**Toplam Kayıt:** {registration_stats['total_registrations']} kişi\n"
+                    reg_value += f"**Günlük Ortalama:** {registration_stats['daily_average']} kayıt"
+                    
+                    # En aktif saatleri ekle (varsa)
+                    if registration_stats.get('top_hours'):
+                        reg_value += "\n\n**🕐 En Aktif Saatler:**"
+                        for hour_data in registration_stats['top_hours'][:3]:
+                            hour = hour_data['hour']
+                            count = hour_data['count']
+                            reg_value += f"\n• {hour:02d}:00-{hour+1:02d}:00 → {count} kayıt"
+                    
+                    embed.add_field(
+                        name="📝 Kayıt Sistemi",
+                        value=reg_value,
+                        inline=True
+                    )
+                else:
+                    # Kayıt yoksa bile alan ekle (düzen bozulmasın)
+                    if 'error' not in registration_stats:
+                        embed.add_field(
+                            name="📝 Kayıt Sistemi",
+                            value="Bu hafta kayıt aktivitesi tespit edilmedi.",
+                            inline=True
+                        )
+            except Exception as e:
+                # Hata durumunda sessiz geç (rapor bozulmasın)
+                print(f"Kayıt istatistikleri eklenirken hata: {e}")
+            
             # === BUMP İSTATİSTİKLERİ ===
             # Bump verilerini al (son 7 gün)
             bump_stats = await db.get_bump_stats_by_period(guild.id, 'weekly')

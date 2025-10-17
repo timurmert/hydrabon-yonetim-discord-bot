@@ -8,6 +8,8 @@ class Database:
     def __init__(self, db_path="hydrabon_bot.db"):
         self.db_path = db_path
         self.connection = None
+        self.registration_db_path = "../kayit-sistemi/registration_stats.db"
+        self.registration_connection = None
         
     async def connect(self):
         """Veritabanına bağlanır ve tabloları oluşturur"""
@@ -26,6 +28,11 @@ class Database:
         if self.connection:
             await self.connection.close()
             self.connection = None
+        
+        # Kayıt veritabanı bağlantısını da kapat
+        if self.registration_connection:
+            await self.registration_connection.close()
+            self.registration_connection = None
             
     async def create_tables(self):
         """Gerekli veritabanı tablolarını oluşturur"""
@@ -1726,6 +1733,93 @@ class Database:
             
             await self.connection.commit()
             return cursor.rowcount
+    
+    async def connect_registration_db(self):
+        """Kayıt istatistikleri veritabanına bağlanır"""
+        if self.registration_connection is None:
+            try:
+                self.registration_connection = await aiosqlite.connect(self.registration_db_path)
+                self.registration_connection.row_factory = aiosqlite.Row
+            except Exception as e:
+                print(f"Kayıt veritabanına bağlanırken hata: {e}")
+                self.registration_connection = None
+        return self.registration_connection
+    
+    async def close_registration_db(self):
+        """Kayıt veritabanı bağlantısını kapatır"""
+        if self.registration_connection:
+            await self.registration_connection.close()
+            self.registration_connection = None
+    
+    async def get_registration_stats(self, start_date, end_date):
+        """Belirtilen tarih aralığındaki kayıt istatistiklerini getirir
+        
+        Args:
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            dict: Kayıt istatistikleri
+        """
+        try:
+            # Kayıt veritabanına bağlan
+            reg_conn = await self.connect_registration_db()
+            
+            if not reg_conn:
+                return {
+                    'total_registrations': 0,
+                    'daily_average': 0,
+                    'error': 'Kayıt veritabanına bağlanılamadı'
+                }
+            
+            start_str = start_date.isoformat()
+            end_str = end_date.isoformat()
+            
+            async with reg_conn.cursor() as cursor:
+                # Toplam kayıt sayısı
+                await cursor.execute('''
+                SELECT COUNT(*) FROM registrations 
+                WHERE registered_at >= ? AND registered_at < ?
+                ''', (start_str, end_str))
+                
+                total_registrations = (await cursor.fetchone())[0]
+                
+                # Günlük ortalama hesapla
+                days_diff = max(1, (end_date - start_date).days)
+                daily_average = round(total_registrations / days_diff, 1)
+                
+                # Saatlik dağılım (en aktif saatler)
+                await cursor.execute('''
+                SELECT strftime('%H', registered_at) as hour, COUNT(*) as count
+                FROM registrations 
+                WHERE registered_at >= ? AND registered_at < ?
+                GROUP BY hour
+                ORDER BY count DESC
+                LIMIT 3
+                ''', (start_str, end_str))
+                
+                top_hours = []
+                for row in await cursor.fetchall():
+                    top_hours.append({
+                        'hour': int(row[0]),
+                        'count': row[1]
+                    })
+                
+                return {
+                    'total_registrations': total_registrations,
+                    'daily_average': daily_average,
+                    'top_hours': top_hours,
+                    'period_days': days_diff
+                }
+                
+        except Exception as e:
+            print(f"Kayıt istatistikleri alınırken hata: {e}")
+            return {
+                'total_registrations': 0,
+                'daily_average': 0,
+                'top_hours': [],
+                'error': str(e)
+            }
 
 
 
