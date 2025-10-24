@@ -1146,7 +1146,7 @@ class ExtraFeatures(commands.Cog):
             if "hydrabon" in name.lower():
                 await interaction.response.send_message("Oda ismi güvenlik önlemleri gereği HydRaboN içeremez.", ephemeral=True)
                 return
-            elif name.lower() in map(str.lower, self.karaliste):
+            elif any(kara_kelime.lower() in name.lower() for kara_kelime in self.karaliste):
                 await interaction.response.send_message("Uygunsuz kelime içeren bir oda ismi giremezsiniz.", ephemeral=True)
                 return
             else:
