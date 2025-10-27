@@ -3401,6 +3401,29 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
         embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Sunucu-log kanalına bildirim gönder
+        try:
+            log_channel = interaction.client.get_channel(1365956201539571835)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📝 Yeni Kullanıcı Notu Eklendi",
+                    description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
+                               f"**Not ID:** `{note_id}`\n"
+                               f"**Ekleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                    color=0x3498db,
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(
+                    name="Not İçeriği",
+                    value=content[:1024] if len(content) <= 1024 else content[:1021] + "...",
+                    inline=False
+                )
+                log_embed.set_thumbnail(url=user.display_avatar.url)
+                log_embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
+                await log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"Sunucu-log kanalına not ekleme bildirimi gönderilemedi: {e}")
 
 
 class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
@@ -3464,6 +3487,33 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
             embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Sunucu-log kanalına bildirim gönder
+            try:
+                log_channel = interaction.client.get_channel(1365956201539571835)
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="✏️ Kullanıcı Notu Güncellendi",
+                        description=f"**Not ID:** `{note_id}`\n"
+                                   f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                                   f"**Düzenleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        color=0xf39c12,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    log_embed.add_field(
+                        name="Eski İçerik",
+                        value=note['note_content'][:1024] if len(note['note_content']) <= 1024 else note['note_content'][:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.add_field(
+                        name="Yeni İçerik",
+                        value=new_content[:1024] if len(new_content) <= 1024 else new_content[:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
+                    await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Sunucu-log kanalına not güncelleme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not güncellenirken bir hata oluştu!",
@@ -3560,6 +3610,34 @@ class DeleteNoteConfirmView(discord.ui.View):
                 item.disabled = True
             
             await interaction.response.edit_message(embed=embed, view=self)
+            
+            # Sunucu-log kanalına bildirim gönder
+            try:
+                log_channel = interaction.client.get_channel(1365956201539571835)
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="🗑️ Kullanıcı Notu Silindi",
+                        description=f"**Not ID:** `{self.note['id']}`\n"
+                                   f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
+                                   f"**Silen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        color=0xe74c3c,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    log_embed.add_field(
+                        name="Silinen Not İçeriği",
+                        value=self.note['note_content'][:1024] if len(self.note['note_content']) <= 1024 else self.note['note_content'][:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.add_field(
+                        name="Not Bilgileri",
+                        value=f"**Ekleyen:** {self.note['created_by_username']}\n"
+                              f"**Tarih:** {datetime.datetime.fromisoformat(self.note['created_at']).strftime('%d.%m.%Y %H:%M')}",
+                        inline=False
+                    )
+                    log_embed.set_footer(text=f"Silen: {interaction.user.name}")
+                    await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Sunucu-log kanalına not silme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not silinirken bir hata oluştu!",
