@@ -1075,6 +1075,11 @@ class ExtraFeatures(commands.Cog):
                     guild.default_role: discord.PermissionOverwrite(connect=True)  # Herkes için açık başlat
                 }
                 
+                # Kayıtsız Üye rolü için kanal görüntüleme ve bağlanma izni kapat
+                kayitsiz_role = guild.get_role(1428496119213588521)
+                if kayitsiz_role:
+                    overwrites[kayitsiz_role] = discord.PermissionOverwrite(view_channel=False, connect=False)
+                
                 # Kanal sahibi her zaman girebilir
                 overwrites[member] = discord.PermissionOverwrite(connect=True)
                 
