@@ -7,8 +7,6 @@ import random
 import os
 import tempfile
 import asyncio
-import psutil
-import platform
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional, Union
@@ -29,17 +27,21 @@ class ExtraFeatures(commands.Cog):
         self.created_channels = []  # Oluşturulan kanalları takip etmek için liste
         self.channel_owners = {}  # Kanal ID'sini ve sahibinin ID'sini tutan sözlük
         self.GUILD_ID = 1029088146752815138
-        self.WELCOME_CHANNEL_ID = 1406431661872124026
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
-        self.exempt_users = [315888596437696522,
-                             906303284434833448,
-                             591347986995478545,
-                             871168756716564501,
-                             518492263098220566,
-                             303447295171493898,
-                             952244964866273311]
+        self.KURUCU_ID = 315888596437696522  # Kurucu ID'si
+        
+        # İzin verilen yetkili roller
+        self.EXEMPT_ROLES = {
+            YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
+            YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
+            YETKILI_ROLLERI["KURUCU"]
+        }
+        
         self.discord_invite_pattern = re.compile(r'discord(?:\.gg|app\.com\/invite|\.com\/invite)\/([a-zA-Z0-9]+)')
+        
+        # Link pattern (http veya https ile başlayan URL'ler)
+        self.link_pattern = re.compile(r'https?://[^\s]+', re.IGNORECASE)
         
         # Karalisteyi yükle
         self.karaliste = self.load_karaliste()
@@ -64,61 +66,6 @@ class ExtraFeatures(commands.Cog):
         self.MENTION_VIOLATION_WINDOW = 24 * 60 * 60  # 24 saat (saniye cinsinden)
         self.MENTION_TIMEOUT_LEVELS = [5, 30, 120, 360, 720, 1440]  # Dakika cinsinden kademeli timeout süreleri (5min, 30min, 2h, 6h, 12h, 24h)
         self.MAX_VIOLATION_RECORDS = 20  # Kullanıcı başına maksimum ihlal kaydı
-        
-        # Karşılama mesajları
-        self.welcome_messages = [
-            "Hey {}, HydRaboN'a hoş geldin! Gücünü hangi oyunda göstermek istersin?",
-            "Merhaba {}, doğru adrestesin! Hangi efsane karakter seni temsil eder?",
-            "{} geldi! Burada yeni bir efsane yazılıyor, hazır mısın?",
-            "Hoş geldin {}, HydRaboN'un enerjisine katıldığın için çok mutluyuz! En çok hangi başarı seni gururlandırır?",
-            "Selam {}, burası hayallerin gerçeğe dönüştüğü yer! Hangi hayalini bizimle paylaşmak isterdin?",
-            "{}! HydRaboN'a hoş geldin, savaş arkadaşların seni bekliyor!",
-            "Hey {}, aramıza hoş geldin! İlk HydRaboN anın unutulmaz olsun!",
-            "{} geldi! Güç birliği yapmaya hazırız! En sevdiğin strateji nedir?",
-            "Merhaba {}, HydRaboN'un kalbine hoş geldin! Ruhunu ateşleyen şarkı ne?",
-            "{} hoş geldin! Burada her yeni üye bir yıldızdır! Hangi becerini parlatmak istersin?",
-            "Selam {}, cesurların arasına hoş geldin! Hangi zorluğu aşmayı hedefliyorsun?",
-            "Hoş geldin {}, burada her gün bir meydan okuma! Senin güçlü yanın ne?",
-            "Hey {}, HydRaboN'da yeni bir macera başlıyor! Efsane olmaya hazır mısın?",
-            "{} geldi ve sunucunun enerjisi bir anda arttı! Sence takım ruhu ne demek?",
-            "Merhaba {}, hoş geldin! Hangi anı burada sonsuz yapmak isterdin?",
-            "Selam {}, HydRaboN ruhunu taşıyanlardan oldun! Kendini 3 kelimeyle anlatır mısın?",
-            "{} hoş geldin! Burada sıradanlık yasaktır! Sende hangi yetenek gizli?",
-            "Hey {}, geldin ve hikaye şimdi başlıyor! Bir süper gücün olsaydı ne olurdu?",
-            "Hoş geldin {}, burada yıldızlar bile bize bakıyor! En büyük hedefin nedir?",
-            "Selam {}, HydRaboN'la yükselmeye hazır mısın? En çok motive eden şey nedir?",
-            "{} geldi! HydRaboN bir kişi daha güçlendi! En sevdiğin ilham kaynağın ne?",
-            "Merhaba {}, burası seninle daha da güçlendi! Takım çalışmasında kendine ne kadar güvenirsin?",
-            "{} hoş geldin! Zafere giden yolda ilk adım buradan başlar! Sence başarı nedir?",
-            "Hey {}, hoş geldin! Seni burada tanımak için sabırsızlanıyoruz! Şu an bir yerde olsan, nerede olmak isterdin?",
-            "{} geldi! HydRaboN'un yeni yıldızı aramızda! Hayat mottolarından biri ne?",
-            "Selam {}, yeni bir hikayeye hoş geldin! Bugün kendine bir söz versen, ne olurdu?",
-            "{} hoş geldin! Burada hayaller gerçek oluyor! Bugün bir şeyi değiştirebilseydin ne olurdu?",
-            "Hey {}, HydRaboN artık daha da güçlü! İçindeki cevheri ortaya çıkarmaya hazır mısın?",
-            "Hoş geldin {}, birlikte zirveyi zorluyoruz! Hayatındaki en büyük ilham kaynağın kim?",
-            "{} geldi! HydRaboN ailesi büyüyor! Kendine koyduğun son hedef neydi?",
-            "Selam {}, burası enerjini ortaya koyabileceğin yer! Sence hayat bir oyun olsaydı hangi rolde olurdun?",
-            "Merhaba {}, hoş geldin! Hangi kahramanla omuz omuza savaşmak isterdin?",
-            "{}! HydRaboN'da yeni bir serüven başladı! Hayatında unutamadığın bir anı paylaşır mısın?",
-            "Hey {}, hoş geldin! Bugün seni gülümseten bir şey neydi?",
-            "Hoş geldin {}, enerjine enerjimizi katmaya geldik! Sence en güçlü yönün hangisi?",
-            "{} aramıza katıldı! Birlikte başaracak çok şeyimiz var! Hayatındaki motto nedir?",
-            "Selam {}, HydRaboN'la maceraya atılmaya hazır ol! Şu an bir kahraman ismi alsan ne olurdu?",
-            "Hoş geldin {}, burada herkes kendi hikayesinin kahramanı! Senin kahramanlık anın neydi?",
-            "{} geldi! Şimdi takım tamamlandı! Hayatındaki en büyük hayalini bizimle paylaşmak ister misin?",
-            "Hey {}, HydRaboN'a hoş geldin! En çok hangi konuda ilham alırsın?",
-            "Selam {}, burası hayallerin gerçeğe döndüğü yer! En çok görmek istediğin yer neresi?",
-            "Hoş geldin {}, büyük şeyler küçük adımlarla başlar! Bugün atacağın ilk adım ne olurdu?",
-            "{}! Aramıza hoş geldin, burada her gün yeni bir macera! Hangi konuda kendini geliştirmek istersin?",
-            "Merhaba {}, HydRaboN sahnesine hoş geldin! Eğer bir kitap yazsan, adı ne olurdu?",
-            "{} geldi! Sunucunun havası değişti! Şu anda ruh halini bir renk olarak söylesen, hangi renk olurdu?",
-            "Hey {}, hoş geldin! Burada herkes bir yıldız! Parlamak için en çok ne yaparsın?",
-            "Hoş geldin {}, HydRaboN'la zirveye koşuyoruz! Başarmak istediğin bir hedef var mı?",
-            "{} aramıza katıldı! Cesaretin, buraya geldiğin anda başladı! Hayalini üç kelimeyle anlatır mısın?",
-            "Selam {}, HydRaboN'da her adım bir serüven! Bugün hangi yeni şeyi denemek isterdin?",
-            "Hoş geldin {}, birlikte unutulmaz anılar biriktireceğiz! Sence hayatın en güzel anı hangi anda gizlidir?",
-            "{} geldi! Şimdi sıra sende: İlk HydRaboN maceran ne olacak?"
-        ]
         
     def load_karaliste(self):
         """Karaliste dosyasını yükler"""
@@ -218,20 +165,10 @@ class ExtraFeatures(commands.Cog):
                     action='join',
                     account_created=member.created_at
                 )
-
-            # Üyeye otomatik rol ver (bot'lara da)
-            guild = self.bot.get_guild(self.GUILD_ID)
-            if guild:
-                role = guild.get_role(1029089740022095973)
-                if role:
-                    await member.add_roles(role)
-
-            # Karşılama mesajı gönder (sadece gerçek kullanıcılara)
+            
+            # Kullanıcı notu kontrolü (sadece gerçek kullanıcılar için)
             if not member.bot:
-                channel = self.bot.get_channel(self.WELCOME_CHANNEL_ID)
-                if channel:
-                    welcome_message = random.choice(self.welcome_messages).format(member.mention)
-                    await channel.send(welcome_message)
+                await self.check_user_notes_on_join(member)
                     
         except Exception as e:
             print(f"Member join işlemi hatası: {e}")
@@ -255,6 +192,71 @@ class ExtraFeatures(commands.Cog):
                     
         except Exception as e:
             print(f"Member remove işlemi hatası: {e}")
+    
+    async def check_user_notes_on_join(self, member):
+        """Yeni katılan üye için not kontrolü yapar ve uyarı gönderir"""
+        try:
+            from database import get_db
+            db = await get_db()
+            
+            # Kullanıcının notlarını kontrol et
+            notes = await db.get_user_notes(member.id, member.guild.id, limit=10)
+            
+            if notes:
+                # Yetkili sohbet kanalını al
+                yetkili_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
+                if not yetkili_channel:
+                    return
+                
+                # Uyarı embed'i oluştur
+                embed = discord.Embed(
+                    title="⚠️ NOTLU KULLANICI GİRİŞİ",
+                    description=f"**Kullanıcı:** {member.mention} ({member.display_name})\n"
+                               f"**Kullanıcı ID:** `{member.id}`\n"
+                               f"**Hesap Oluşturma:** {discord.utils.format_dt(member.created_at, style='R')}\n"
+                               f"**Toplam Not Sayısı:** {len(notes)}",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(self.turkey_tz)
+                )
+                
+                # İlk 3 notu göster
+                for i, note in enumerate(notes[:3], 1):
+                    created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+                    note_content = note['note_content']
+                    if len(note_content) > 200:
+                        note_content = note_content[:200] + "..."
+                    
+                    embed.add_field(
+                        name=f"📝 Not #{note['id']} - {created_date}",
+                        value=f"**İçerik:** {note_content}\n"
+                              f"**Ekleyen:** {note['created_by_username']}",
+                        inline=False
+                    )
+                
+                # Eğer 3'ten fazla not varsa bilgi ekle
+                if len(notes) > 3:
+                    embed.add_field(
+                        name="ℹ️ Ek Bilgi",
+                        value=f"Bu kullanıcı hakkında **{len(notes) - 3} adet daha not** bulunmaktadır.\n"
+                              f"Tüm notları görmek için `/yetkili-panel` → `Kullanıcı Notları` → `👤 Kullanıcıya Göre Filtrele` kullanın.",
+                        inline=False
+                    )
+                
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(
+                    text=f"Kontrol: Otomatik Not Sistemi",
+                    icon_url=member.guild.icon.url if member.guild.icon else None
+                )
+                
+                # Uyarı mesajını gönder (everyone kullanmadan)
+                await self.safe_send(
+                    yetkili_channel,
+                    content="🚨 **DİKKAT** 🚨\nNotlu bir kullanıcı sunucuya katıldı!",
+                    embed=embed
+                )
+                
+        except Exception as e:
+            print(f"Kullanıcı not kontrolü hatası: {e}")
     
     async def check_discord_invite(self, message_content, guild):
         """Discord davet linklerini kontrol eder"""
@@ -290,25 +292,28 @@ class ExtraFeatures(commands.Cog):
             return
 
         # Yetkili kullanıcıları kontrol et
-        if message.author.id in self.exempt_users:
+        if any(role.id in self.EXEMPT_ROLES for role in message.author.roles):
             return
             
         # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
         try:
-            if message.mention_everyone or message.role_mentions or message.mentions:
-                # Kurucu rolü etiketlendi mi?
-                kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
-                kurucu_role_etiketi = (kurucu_role is not None and kurucu_role in message.role_mentions)
+            # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
+            # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
+            kurucu_role_etiketi = False
+            kurucu_kullanici_etiketi = False
+            
+            # Spesifik kurucu ID'si kontrolü
+            kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
+            
+            if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
+                kurucu_kullanici_etiketi = True
+            
+            # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
+            kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
+            if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
+                kurucu_role_etiketi = True
 
-                # Kurucu kullanıcı (role sahibi) etiketlendi mi? (rolü taşıyan herkes kurucu olabilir)
-                kurucu_kullanici_etiketi = False
-                if message.mentions:
-                    for m in message.mentions:
-                        if isinstance(m, discord.Member) and any(r.id == self.KURUCU_ROLE_ID for r in m.roles):
-                            kurucu_kullanici_etiketi = True
-                            break
-
-                if kurucu_role_etiketi or kurucu_kullanici_etiketi:
+            if kurucu_role_etiketi or kurucu_kullanici_etiketi:
                     try:
                         await message.delete()
                     except discord.Forbidden:
@@ -354,13 +359,37 @@ class ExtraFeatures(commands.Cog):
         # Spam koruma sistemi
         await self.check_spam_protection(message)
 
-        # Discord davet linki denetimi
-        if self.discord_invite_pattern.search(message.content):
-            is_allowed = await self.check_discord_invite(message.content, message.guild)
+        # Discord davet linki denetimi (mesaj içeriği veya thread ismi)
+        has_invite_in_content = self.discord_invite_pattern.search(message.content)
+        has_invite_in_thread_name = False
+        
+        # Thread isminde davet linki kontrolü
+        if isinstance(message.channel, discord.Thread):
+            has_invite_in_thread_name = self.discord_invite_pattern.search(message.channel.name)
+        
+        if has_invite_in_content or has_invite_in_thread_name:
+            # İçerikteki veya thread ismindeki daveti kontrol et
+            check_text = message.content if has_invite_in_content else message.channel.name
+            is_allowed = await self.check_discord_invite(check_text, message.guild)
+            
             if not is_allowed:
                 try:
-                    # Mesajı sil
-                    await message.delete()
+                    # Thread kontrolü - Eğer mesaj thread'in başlangıç mesajıysa veya thread isminde davet varsa thread'i sil
+                    thread_deleted = False
+                    if isinstance(message.channel, discord.Thread):
+                        # Thread'in başlangıç mesajı mı kontrol et veya thread isminde davet var mı
+                        if message.id == message.channel.id or has_invite_in_thread_name:
+                            try:
+                                await message.channel.delete()
+                                thread_deleted = True
+                            except discord.Forbidden:
+                                pass
+                            except Exception as e:
+                                print(f"Thread silme hatası: {e}")
+                    
+                    # Mesajı sil (thread silinmediyse)
+                    if not thread_deleted:
+                        await message.delete()
                     
                     # 1 haftalık timeout uygula (7 gün = 604800 saniye)
                     timeout_duration = datetime.timedelta(days=7)
@@ -375,9 +404,16 @@ class ExtraFeatures(commands.Cog):
                             timestamp=datetime.datetime.now(self.turkey_tz)
                         )
                         embed.add_field(name="Kullanıcı", value=f"{message.author.mention} ({message.author.id})", inline=False)
-                        embed.add_field(name="Kanal", value=f"{message.channel.mention}", inline=False)
+                        embed.add_field(name="Kanal", value=f"{message.channel.mention if not thread_deleted else f'#{message.channel.name} (Thread Silindi)'}", inline=False)
                         embed.add_field(name="Mesaj İçeriği", value=f"```{message.content[:1000]}```", inline=False)
-                        embed.add_field(name="İşlem", value="Mesaj silindi ve kullanıcıya 7 günlük timeout uygulandı", inline=False)
+                        
+                        action_text = "Mesaj silindi ve kullanıcıya 7 günlük timeout uygulandı"
+                        if thread_deleted:
+                            action_text = "Thread ve mesaj silindi, kullanıcıya 7 günlük timeout uygulandı"
+                        elif has_invite_in_thread_name:
+                            action_text += " (Thread isminde davet linki tespit edildi)"
+                            
+                        embed.add_field(name="İşlem", value=action_text, inline=False)
                         embed.set_footer(text=f"Kullanıcı ID: {message.author.id}")
                         
                         # Fire-and-forget: Krıitik uyarı background'da gönderilir
@@ -390,11 +426,14 @@ class ExtraFeatures(commands.Cog):
                 except Exception as e:
                     print(f"Discord davet linki işlemi sırasında hata: {e}")
 
-        # Link denetimi
-        if message.content.startswith('https://') or message.content.startswith('http://'):
-            if message.channel.id == self.WELCOME_CHANNEL_ID:
+        # Link denetimi - Mesajın içinde link var mı kontrol et
+        if self.link_pattern.search(message.content):
+            # Hoş geldin kanalı ID'si (varsayılan: yok, değişkenle kontrol ediyoruz)
+            WELCOME_CHANNEL_ID = getattr(self, 'WELCOME_CHANNEL_ID', None)
+            
+            if WELCOME_CHANNEL_ID and message.channel.id == WELCOME_CHANNEL_ID:
                 await message.delete()
-                msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1029089834435878993> kanalına atmanız gerekmektedir.')
+                msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1406432595679383572> kanalına atmanız gerekmektedir.')
                 await msg.delete(delay=4)
                 return
 
@@ -917,7 +956,7 @@ class ExtraFeatures(commands.Cog):
             pass
             return
         
-        if deleter.id in self.exempt_users:
+        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
         if deleter:
@@ -949,7 +988,7 @@ class ExtraFeatures(commands.Cog):
             pass
             return
         
-        if deleter.id in self.exempt_users:
+        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
         if deleter:
@@ -983,7 +1022,7 @@ class ExtraFeatures(commands.Cog):
                 pass
                 return
             
-            if updater.id in self.exempt_users:
+            if updater and any(role.id in self.EXEMPT_ROLES for role in updater.roles):
                 return
 
             # Rolü değiştiren kişiyle güncellenen kişi aynı değilse
@@ -1068,33 +1107,15 @@ class ExtraFeatures(commands.Cog):
             category = after.channel.category
             
             try:
-                # Özel rolleri tanımla
-                yonetim_kurulu_uyeleri_id = 1029089731314720798  # YÖNETİM KURULU ÜYELERİ
-                yonetim_kurulu_baskani_id = 1029089727061692522  # YÖNETİM KURULU BAŞKANI
-                kurucu_id = 1029089723110674463  # KURUCU
-                
-                # Kullanıcının rollerini kontrol et
-                ozel_rol_sahibi = any(role.id in [yonetim_kurulu_uyeleri_id, yonetim_kurulu_baskani_id, kurucu_id] for role in member.roles)
-                
-                # Kanal için izinleri oluştur
+                # Kanal için izinleri oluştur - Artık tüm kullanıcılar için aynı sistem
                 overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(connect=not ozel_rol_sahibi)  # Özel rol sahipleri için kilitli başlat
+                    guild.default_role: discord.PermissionOverwrite(connect=True)  # Herkes için açık başlat
                 }
                 
-                # Eğer özel rol sahibiyse, izinleri ayarla
-                if ozel_rol_sahibi:
-                    # Kanal başlangıçta herkese kapalı, sadece özel rollere açık
-                    yonetim_uye_rol = guild.get_role(yonetim_kurulu_uyeleri_id)
-                    yonetim_baskan_rol = guild.get_role(yonetim_kurulu_baskani_id)
-                    kurucu_rol = guild.get_role(kurucu_id)
-                    
-                    # Rolleri ekle
-                    if yonetim_uye_rol:
-                        overwrites[yonetim_uye_rol] = discord.PermissionOverwrite(connect=True)
-                    if yonetim_baskan_rol:
-                        overwrites[yonetim_baskan_rol] = discord.PermissionOverwrite(connect=True)
-                    if kurucu_rol:
-                        overwrites[kurucu_rol] = discord.PermissionOverwrite(connect=True)
+                # Kayıtsız Üye rolü için kanal görüntüleme ve bağlanma izni kapat
+                kayitsiz_role = guild.get_role(1428496119213588521)
+                if kayitsiz_role:
+                    overwrites[kayitsiz_role] = discord.PermissionOverwrite(view_channel=False, connect=False)
                 
                 # Kanal sahibi her zaman girebilir
                 overwrites[member] = discord.PermissionOverwrite(connect=True)
@@ -1133,30 +1154,6 @@ class ExtraFeatures(commands.Cog):
                 except discord.HTTPException as e:
                     print(f"Kanal silinirken hata: {e}")
 
-    # Yetkili izinleri komutları
-    @app_commands.command(name="yetkili-izin-ver", description="Kullanıcıya kanal silme, rol silme izni verir")
-    @app_commands.describe(kullanici="Yetkili izni verilecek kullanıcı")
-    async def yetkili_izin_ver(self, interaction: discord.Interaction, kullanici: discord.Member):
-        # Sadece belirli bir ID'ye sahip kullanıcı bu komutu kullanabilir
-        if interaction.user.id == 315888596437696522:
-            self.exempt_users.append(kullanici.id)
-            await interaction.response.send_message(f"{kullanici} adlı kullanıcı yetkili izinlerine eklendi.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için yetkiniz yok!", ephemeral=True)
-
-    @app_commands.command(name="yetkili-izin-sil", description="Kullanıcının kanal silme, rol silme iznini kaldırır")
-    @app_commands.describe(kullanici="Yetkili izni kaldırılacak kullanıcı")
-    async def yetkili_izin_sil(self, interaction: discord.Interaction, kullanici: discord.Member):
-        # Sadece belirli bir ID'ye sahip kullanıcı bu komutu kullanabilir
-        if interaction.user.id == 315888596437696522:
-            if kullanici.id in self.exempt_users:
-                self.exempt_users.remove(kullanici.id)
-                await interaction.response.send_message(f"{kullanici} adlı kullanıcı yetkili izinlerinden çıkartıldı.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"{kullanici} adlı kullanıcı zaten izin listesinde bulunmuyor.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için yetkiniz yok!", ephemeral=True)
-
     # Özel ses kanalı yönetim komutları
     @app_commands.command(name="limit", description="Özel odanın üye limitini ayarlar")
     @app_commands.describe(limit="Oda limiti ayarlar")
@@ -1174,50 +1171,7 @@ class ExtraFeatures(commands.Cog):
         else:
             await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 
-    @app_commands.command(name="kilitle", description="Özel odayı kilitler")
-    async def kilitle(self, interaction: discord.Interaction):
-        # Kullanıcı bir ses kanalında mı kontrol et
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
-            
-        voice_channel = interaction.user.voice.channel
-        guild = interaction.guild
 
-        # Kullanıcı kanal sahibi mi kontrol et
-        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
-            # @everyone rolü için "Bağlan" iznini kaldır
-            overwrites = voice_channel.overwrites
-            everyone_role = guild.default_role  # @everyone rolünü elde et
-            overwrites[everyone_role] = discord.PermissionOverwrite(connect=False)
-
-            # Kanal sahibi her zaman bağlanabilir
-            overwrites[interaction.user] = discord.PermissionOverwrite(connect=True)
-            await voice_channel.edit(overwrites=overwrites)
-
-            await interaction.response.send_message("Oda kilitlendi.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
-
-    @app_commands.command(name="kilit-ac", description="Özel odanın kilidini açar")
-    async def kilit_ac(self, interaction: discord.Interaction):
-        # Kullanıcı bir ses kanalında mı kontrol et
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
-            
-        voice_channel = interaction.user.voice.channel
-        guild = interaction.guild
-
-        # Kullanıcı kanal sahibi mi kontrol et
-        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
-            # @everyone rolü için "Bağlan" iznini geri ver
-            overwrites = voice_channel.overwrites
-            everyone_role = guild.default_role  # @everyone rolünü elde et
-            overwrites[everyone_role] = discord.PermissionOverwrite(connect=True)
-
-            await voice_channel.edit(overwrites=overwrites)
-            await interaction.response.send_message("Oda kilidi açıldı.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 
     @app_commands.command(name="isim", description="Özel odanın ismini değiştirir")
     @app_commands.describe(name="Yeni oda ismi")
@@ -1234,7 +1188,7 @@ class ExtraFeatures(commands.Cog):
             if "hydrabon" in name.lower():
                 await interaction.response.send_message("Oda ismi güvenlik önlemleri gereği HydRaboN içeremez.", ephemeral=True)
                 return
-            elif name.lower() in map(str.lower, self.karaliste):
+            elif any(kara_kelime.lower() in name.lower() for kara_kelime in self.karaliste):
                 await interaction.response.send_message("Uygunsuz kelime içeren bir oda ismi giremezsiniz.", ephemeral=True)
                 return
             else:
@@ -1299,7 +1253,7 @@ class ExtraFeatures(commands.Cog):
     @app_commands.describe(miktar="Silinecek mesaj sayısı (1-100 arası)")
     async def sil(self, interaction: discord.Interaction, miktar: int):
         # Yetkili kontrolü
-        if interaction.user.id not in self.exempt_users:
+        if not any(role.id in self.EXEMPT_ROLES for role in interaction.user.roles):
             return await interaction.response.send_message("Bu komutu kullanmak için yetkiniz yok!", ephemeral=True)
         
         # 100'den fazla mesaj silme girişimi kontrolü

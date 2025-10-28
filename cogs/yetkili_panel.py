@@ -1557,8 +1557,16 @@ class OtomatikMesajEkleModal(discord.ui.Modal, title="Otomatik Mesaj Ekle"):
                 tekrar_sayisi,
                 schedule_data # zaman_araligi yerine schedule_data
             )
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {view.sayfa + 1}/{view.toplam_sayfa} • Toplam {len(view.text_channels)} kanal")
+            
             await interaction.response.send_message(
-                "Mesajın gönderileceği kanalı seçin:",
+                embed=embed,
                 view=view,
                 ephemeral=True
             )
@@ -1570,7 +1578,7 @@ class OtomatikMesajEkleModal(discord.ui.Modal, title="Otomatik Mesaj Ekle"):
             await interaction.response.send_message(f"Bir hata oluştu: {e}", ephemeral=True)
 
 class KanalSecimView(discord.ui.View):
-    def __init__(self, cog, user, mesaj_icerik, tekrar_sayisi, schedule_data): # zaman_araligi -> schedule_data
+    def __init__(self, cog, user, mesaj_icerik, tekrar_sayisi, schedule_data, sayfa=0): # zaman_araligi -> schedule_data
         super().__init__(timeout=300)
         self.cog = cog
         self.user = user
@@ -1578,8 +1586,92 @@ class KanalSecimView(discord.ui.View):
         self.tekrar_sayisi = tekrar_sayisi
         self.schedule_data = schedule_data # Değişti
         self.message = None 
+        self.sayfa = sayfa
         
+        # Tüm kanalları al
+        self.text_channels = []
+        guild = self.user.guild
+        for channel in guild.text_channels:
+            # Kullanıcının mesaj gönderebileceği kanallar
+            member_permissions = channel.permissions_for(self.user)
+            if member_permissions.send_messages and member_permissions.view_channel:
+                self.text_channels.append(channel)
+        
+        # Toplam sayfa sayısı
+        self.toplam_sayfa = (len(self.text_channels) - 1) // 25 + 1
+        
+        self.setup_view()
+    
+    def setup_view(self):
+        """View'ı ayarla"""
+        self.clear_items()
+        
+        # Kanal seçim menüsü ekle
         self.add_item(KanalSecimMenu(self))
+        
+        # Sayfa geçiş butonları ekle (eğer birden fazla sayfa varsa)
+        if self.toplam_sayfa > 1:
+            if self.sayfa > 0:
+                onceki_buton = discord.ui.Button(
+                    label="◀ Önceki Sayfa",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="onceki_sayfa_secim"
+                )
+                onceki_buton.callback = self.onceki_sayfa_callback
+                self.add_item(onceki_buton)
+            
+            if self.sayfa < self.toplam_sayfa - 1:
+                sonraki_buton = discord.ui.Button(
+                    label="Sonraki Sayfa ▶",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="sonraki_sayfa_secim"
+                )
+                sonraki_buton.callback = self.sonraki_sayfa_callback
+                self.add_item(sonraki_buton)
+            
+            # Sayfa bilgisi butonu
+            sayfa_info = discord.ui.Button(
+                label=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa}",
+                style=discord.ButtonStyle.primary,
+                disabled=True
+            )
+            self.add_item(sayfa_info)
+    
+    async def onceki_sayfa_callback(self, interaction: discord.Interaction):
+        """Önceki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa > 0:
+            self.sayfa -= 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def sonraki_sayfa_callback(self, interaction: discord.Interaction):
+        """Sonraki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa < self.toplam_sayfa - 1:
+            self.sayfa += 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description="Otomatik mesajın gönderileceği kanalı seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
     
     async def on_timeout(self):
         """Timeout olduğunda butonları devre dışı bırakma"""
@@ -1594,28 +1686,21 @@ class KanalSecimMenu(discord.ui.Select):
     def __init__(self, ana_view):
         self.ana_view = ana_view
         
-        # Görünür tüm metin kanallarını al
-        text_channels = []
-        guild = self.ana_view.user.guild
-        for channel in guild.text_channels:
-            # Kullanıcının mesaj gönderebileceği kanallar
-            member_permissions = channel.permissions_for(self.ana_view.user)
-            if member_permissions.send_messages and member_permissions.view_channel:
-                text_channels.append(channel)
-        
-        # En fazla 25 kanal gösterebiliriz (Discord limiti)
-        text_channels = text_channels[:25]
+        # Mevcut sayfa için kanalları al
+        baslangic = ana_view.sayfa * 25
+        bitis = min(baslangic + 25, len(ana_view.text_channels))
+        sayfa_kanallari = ana_view.text_channels[baslangic:bitis]
         
         options = [
             discord.SelectOption(
-                label=f"#{channel.name}",
+                label=f"#{channel.name}"[:100],  # Discord label limiti
                 value=str(channel.id),
-                description=f"ID: {channel.id}"
-            ) for channel in text_channels
+                description=f"ID: {channel.id} • Kategori: {channel.category.name if channel.category else 'Yok'}"[:100]
+            ) for channel in sayfa_kanallari
         ]
         
         super().__init__(
-            placeholder="Mesajın gönderileceği kanalı seçin...",
+            placeholder=f"Kanal seçin... (Sayfa {ana_view.sayfa + 1}/{ana_view.toplam_sayfa})",
             min_values=1,
             max_values=1,
             options=options
@@ -1807,6 +1892,507 @@ class OtomatikMesajSecModal(discord.ui.Modal):
             await interaction.response.send_message("Lütfen geçerli bir mesaj ID'si girin.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"Bir hata oluştu: {str(e)}", ephemeral=True)
+
+# Ayrı düzenleme modalları
+class IcerikDuzenleModal(discord.ui.Modal, title="Mesaj İçeriği Düzenle"):
+    def __init__(self, cog, user, mesaj):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.user = user
+        self.mesaj = mesaj
+        
+        self.mesaj_icerik = discord.ui.TextInput(
+            label="Mesaj İçeriği",
+            placeholder="Otomatik olarak gönderilecek mesajın içeriğini girin...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=2000,
+            default=mesaj['message_content']
+        )
+        self.add_item(self.mesaj_icerik)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Form gönderildiğinde"""
+        try:
+            db = await get_db()
+            updated = await db.update_scheduled_message_content(
+                message_id=self.mesaj['id'],
+                message_content=self.mesaj_icerik.value
+            )
+            
+            if updated:
+                embed = discord.Embed(
+                    title="✅ Mesaj İçeriği Güncellendi",
+                    description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın içeriği başarıyla güncellendi.",
+                    color=discord.Color.green()
+                )
+                
+                embed.add_field(
+                    name="Yeni Mesaj İçeriği",
+                    value=self.mesaj_icerik.value[:1000] + ("..." if len(self.mesaj_icerik.value) > 1000 else ""),
+                    inline=False
+                )
+                
+                # Log kanalına bildirim gönder
+                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="✏️ Mesaj İçeriği Güncellendi",
+                        description=f"**{interaction.user.name}** tarafından bir otomatik mesajın içeriği güncellendi.",
+                        color=0x3498db,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    
+                    log_embed.add_field(
+                        name="Mesaj Bilgileri",
+                        value=(
+                            f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                            f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
+                            f"**Oluşturan:** <@{self.mesaj['created_by']}>"
+                        ),
+                        inline=False
+                    )
+                    
+                    log_embed.add_field(
+                        name="Yeni İçerik",
+                        value=self.mesaj_icerik.value[:1000] + ("..." if len(self.mesaj_icerik.value) > 1000 else ""),
+                        inline=False
+                    )
+                    
+                    log_embed.set_footer(text=f"Düzenleyen Kullanıcı ID: {interaction.user.id}")
+                    await log_channel.send(embed=log_embed)
+                
+                # Ana menüye dönüş butonu
+                view = OtomatikMesajlarView(self.cog, self.user)
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    f"İçerik güncellenirken bir hata oluştu. Mesaj bulunamadı veya güncellenemedi.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"İçerik güncellenirken bir hata oluştu: {str(e)}",
+                ephemeral=True
+            )
+
+class ZamanDuzenleModal(discord.ui.Modal, title="Zaman Aralığı Düzenle"):
+    def __init__(self, cog, user, mesaj):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.user = user
+        self.mesaj = mesaj
+        
+        current_schedule = mesaj.get('schedule_data', {})
+        current_days = str(current_schedule.get('days', 0))
+        current_hours = str(current_schedule.get('hours', 0))
+        current_minutes = str(current_schedule.get('minutes', 0))
+        
+        self.gun_input = discord.ui.TextInput(
+            label="Gün Aralığı (Boş bırakılabilir)",
+            placeholder="Örn: 7 (7 günde bir)",
+            required=False,
+            max_length=3,
+            default=current_days
+        )
+        self.add_item(self.gun_input)
+
+        self.saat_input = discord.ui.TextInput(
+            label="Saat Aralığı (Boş bırakılabilir)",
+            placeholder="Örn: 12 (12 saatte bir)",
+            required=False,
+            max_length=3,
+            default=current_hours
+        )
+        self.add_item(self.saat_input)
+
+        self.dakika_input = discord.ui.TextInput(
+            label="Dakika Aralığı (Boş bırakılabilir)",
+            placeholder="Örn: 30 (30 dakikada bir)",
+            required=False,
+            max_length=3,
+            default=current_minutes
+        )
+        self.add_item(self.dakika_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Form gönderildiğinde"""
+        try:
+            gun_str = self.gun_input.value.strip()
+            saat_str = self.saat_input.value.strip()
+            dakika_str = self.dakika_input.value.strip()
+
+            gun = int(gun_str) if gun_str else 0
+            saat = int(saat_str) if saat_str else 0
+            dakika = int(dakika_str) if dakika_str else 0
+
+            if gun < 0 or saat < 0 or dakika < 0:
+                return await interaction.response.send_message("Gün, saat ve dakika negatif olamaz.", ephemeral=True)
+            
+            if saat >= 24:
+                 return await interaction.response.send_message("Saat 0-23 arasında olmalıdır.", ephemeral=True)
+            if dakika >= 60:
+                 return await interaction.response.send_message("Dakika 0-59 arasında olmalıdır.", ephemeral=True)
+
+            if gun == 0 and saat == 0 and dakika == 0:
+                return await interaction.response.send_message("En az bir zaman aralığı (gün, saat veya dakika) belirtmelisiniz.", ephemeral=True)
+
+            schedule_data = {"days": gun, "hours": saat, "minutes": dakika}
+            
+            try:
+                db = await get_db()
+                updated = await db.update_scheduled_message_schedule(
+                    message_id=self.mesaj['id'],
+                    schedule_data=schedule_data
+                )
+                
+                if updated:
+                    embed = discord.Embed(
+                        title="✅ Zaman Aralığı Güncellendi",
+                        description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın zaman aralığı başarıyla güncellendi.",
+                        color=discord.Color.green()
+                    )
+                    
+                    zaman_araligi_str = []
+                    if schedule_data.get("days",0) > 0:
+                        zaman_araligi_str.append(f"{schedule_data['days']} gün")
+                    if schedule_data.get("hours",0) > 0:
+                        zaman_araligi_str.append(f"{schedule_data['hours']} saat")
+                    if schedule_data.get("minutes",0) > 0:
+                        zaman_araligi_str.append(f"{schedule_data['minutes']} dakika")
+
+                    embed.add_field(
+                        name="Yeni Zaman Aralığı",
+                        value=', '.join(zaman_araligi_str) if zaman_araligi_str else 'Belirtilmedi',
+                        inline=False
+                    )
+                    
+                    # Log kanalına bildirim gönder
+                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    if log_channel:
+                        log_embed = discord.Embed(
+                            title="⏰ Zaman Aralığı Güncellendi",
+                            description=f"**{interaction.user.name}** tarafından bir otomatik mesajın zaman aralığı güncellendi.",
+                            color=0x3498db,
+                            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                        )
+                        
+                        log_embed.add_field(
+                            name="Mesaj Bilgileri",
+                            value=(
+                                f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                                f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
+                                f"**Oluşturan:** <@{self.mesaj['created_by']}>\n"
+                                f"**Yeni Zaman Aralığı:** {', '.join(zaman_araligi_str) if zaman_araligi_str else 'Belirtilmedi'}"
+                            ),
+                            inline=False
+                        )
+                        
+                        log_embed.set_footer(text=f"Düzenleyen Kullanıcı ID: {interaction.user.id}")
+                        await log_channel.send(embed=log_embed)
+                    
+                    # Ana menüye dönüş butonu
+                    view = OtomatikMesajlarView(self.cog, self.user)
+                    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+                else:
+                    await interaction.response.send_message(
+                        f"Zaman aralığı güncellenirken bir hata oluştu. Mesaj bulunamadı veya güncellenemedi.",
+                        ephemeral=True
+                    )
+            except Exception as e:
+                await interaction.response.send_message(
+                    f"Zaman aralığı güncellenirken bir hata oluştu: {str(e)}",
+                    ephemeral=True
+                )
+                
+        except ValueError:
+            await interaction.response.send_message("Lütfen gün, saat ve dakika için geçerli sayısal değerler girin.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Bir hata oluştu: {str(e)}", ephemeral=True)
+
+class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
+    def __init__(self, cog, user, mesaj):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.user = user
+        self.mesaj = mesaj
+        
+        self.tekrar_sayisi = discord.ui.TextInput(
+            label="Tekrar Sayısı (0: Sonsuz, 1-100)",
+            placeholder="Mesajın kaç kez gönderileceğini belirtin (0-100)",
+            default=str(mesaj['repeat_count']),
+            style=discord.TextStyle.short,
+            required=True,
+            max_length=3
+        )
+        self.add_item(self.tekrar_sayisi)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Form gönderildiğinde"""
+        try:
+            tekrar_sayisi = int(self.tekrar_sayisi.value)
+            if not (0 <= tekrar_sayisi <= 100):
+                return await interaction.response.send_message("Tekrar sayısı 0-100 arasında olmalıdır.", ephemeral=True)
+            
+            try:
+                db = await get_db()
+                updated = await db.update_scheduled_message_repeat(
+                    message_id=self.mesaj['id'],
+                    repeat_count=tekrar_sayisi
+                )
+                
+                if updated:
+                    embed = discord.Embed(
+                        title="✅ Tekrar Sayısı Güncellendi",
+                        description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın tekrar sayısı başarıyla güncellendi.",
+                        color=discord.Color.green()
+                    )
+                    
+                    embed.add_field(
+                        name="Yeni Tekrar Sayısı",
+                        value='Sonsuz' if tekrar_sayisi == 0 else tekrar_sayisi,
+                        inline=False
+                    )
+                    
+                    # Log kanalına bildirim gönder
+                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    if log_channel:
+                        log_embed = discord.Embed(
+                            title="🔄 Tekrar Sayısı Güncellendi",
+                            description=f"**{interaction.user.name}** tarafından bir otomatik mesajın tekrar sayısı güncellendi.",
+                            color=0x3498db,
+                            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                        )
+                        
+                        log_embed.add_field(
+                            name="Mesaj Bilgileri",
+                            value=(
+                                f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                                f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
+                                f"**Oluşturan:** <@{self.mesaj['created_by']}>\n"
+                                f"**Yeni Tekrar Sayısı:** {'Sonsuz' if tekrar_sayisi == 0 else tekrar_sayisi}"
+                            ),
+                            inline=False
+                        )
+                        
+                        log_embed.set_footer(text=f"Düzenleyen Kullanıcı ID: {interaction.user.id}")
+                        await log_channel.send(embed=log_embed)
+                    
+                    # Ana menüye dönüş butonu
+                    view = OtomatikMesajlarView(self.cog, self.user)
+                    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+                else:
+                    await interaction.response.send_message(
+                        f"Tekrar sayısı güncellenirken bir hata oluştu. Mesaj bulunamadı veya güncellenemedi.",
+                        ephemeral=True
+                    )
+            except Exception as e:
+                await interaction.response.send_message(
+                    f"Tekrar sayısı güncellenirken bir hata oluştu: {str(e)}",
+                    ephemeral=True
+                )
+                
+        except ValueError:
+            await interaction.response.send_message("Lütfen geçerli bir sayısal değer girin.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Bir hata oluştu: {str(e)}", ephemeral=True)
+
+class KanalDuzenleView(discord.ui.View):
+    def __init__(self, cog, user, mesaj, sayfa=0):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.user = user
+        self.mesaj = mesaj
+        self.message = None
+        self.sayfa = sayfa
+        
+        # Tüm kanalları al
+        self.text_channels = []
+        guild = self.user.guild
+        for channel in guild.text_channels:
+            # Kullanıcının mesaj gönderebileceği kanallar
+            member_permissions = channel.permissions_for(self.user)
+            if member_permissions.send_messages and member_permissions.view_channel:
+                self.text_channels.append(channel)
+        
+        # Toplam sayfa sayısı
+        self.toplam_sayfa = (len(self.text_channels) - 1) // 25 + 1
+        
+        self.setup_view()
+    
+    def setup_view(self):
+        """View'ı ayarla"""
+        self.clear_items()
+        
+        # Kanal seçim menüsü ekle
+        self.add_item(KanalDuzenleMenu(self))
+        
+        # Sayfa geçiş butonları ekle (eğer birden fazla sayfa varsa)
+        if self.toplam_sayfa > 1:
+            if self.sayfa > 0:
+                onceki_buton = discord.ui.Button(
+                    label="◀ Önceki Sayfa",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="onceki_sayfa"
+                )
+                onceki_buton.callback = self.onceki_sayfa_callback
+                self.add_item(onceki_buton)
+            
+            if self.sayfa < self.toplam_sayfa - 1:
+                sonraki_buton = discord.ui.Button(
+                    label="Sonraki Sayfa ▶",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id="sonraki_sayfa"
+                )
+                sonraki_buton.callback = self.sonraki_sayfa_callback
+                self.add_item(sonraki_buton)
+            
+            # Sayfa bilgisi butonu
+            sayfa_info = discord.ui.Button(
+                label=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa}",
+                style=discord.ButtonStyle.primary,
+                disabled=True
+            )
+            self.add_item(sayfa_info)
+    
+    async def onceki_sayfa_callback(self, interaction: discord.Interaction):
+        """Önceki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa > 0:
+            self.sayfa -= 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def sonraki_sayfa_callback(self, interaction: discord.Interaction):
+        """Sonraki sayfaya git"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu işlem size ait değil!", ephemeral=True)
+        
+        if self.sayfa < self.toplam_sayfa - 1:
+            self.sayfa += 1
+            self.setup_view()
+            
+            embed = discord.Embed(
+                title="📋 Kanal Seç",
+                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                color=0x3498db
+            )
+            embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def on_timeout(self):
+        """Timeout olduğunda butonları devre dışı bırakma"""
+        for item in self.children:
+            item.disabled = True
+        
+        message = getattr(self, "message", None)
+        if message:
+            await message.edit(view=self)
+
+class KanalDuzenleMenu(discord.ui.Select):
+    def __init__(self, ana_view):
+        self.ana_view = ana_view
+        
+        # Mevcut sayfa için kanalları al
+        baslangic = ana_view.sayfa * 25
+        bitis = min(baslangic + 25, len(ana_view.text_channels))
+        sayfa_kanallari = ana_view.text_channels[baslangic:bitis]
+        
+        options = [
+            discord.SelectOption(
+                label=f"#{channel.name}"[:100],  # Discord label limiti
+                value=str(channel.id),
+                description=f"ID: {channel.id} • Kategori: {channel.category.name if channel.category else 'Yok'}"[:100]
+            ) for channel in sayfa_kanallari
+        ]
+        
+        super().__init__(
+            placeholder=f"Kanal seçin... (Sayfa {ana_view.sayfa + 1}/{ana_view.toplam_sayfa})",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        """Kanal seçildiğinde"""
+        if interaction.user.id != self.ana_view.user.id:
+            return await interaction.response.send_message("Bu seçim size ait değil!", ephemeral=True)
+            
+        kanal_id = int(self.values[0])
+        kanal = interaction.guild.get_channel(kanal_id)
+        
+        if not kanal:
+            return await interaction.response.send_message("Seçilen kanal bulunamadı.", ephemeral=True)
+        
+        try:
+            db = await get_db()
+            updated = await db.update_scheduled_message_channel(
+                message_id=self.ana_view.mesaj['id'],
+                channel_id=kanal_id,
+                channel_name=kanal.name
+            )
+            
+            if updated:
+                embed = discord.Embed(
+                    title="✅ Kanal Güncellendi",
+                    description=f"ID'si `{self.ana_view.mesaj['id']}` olan otomatik mesajın kanalı başarıyla güncellendi.",
+                    color=discord.Color.green()
+                )
+                
+                embed.add_field(
+                    name="Yeni Kanal",
+                    value=f"<#{kanal_id}>",
+                    inline=False
+                )
+                
+                # Log kanalına bildirim gönder
+                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="📻 Kanal Güncellendi",
+                        description=f"**{interaction.user.name}** tarafından bir otomatik mesajın kanalı güncellendi.",
+                        color=0x3498db,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    
+                    log_embed.add_field(
+                        name="Mesaj Bilgileri",
+                        value=(
+                            f"**Mesaj ID:** `{self.ana_view.mesaj['id']}`\n"
+                            f"**Eski Kanal:** <#{self.ana_view.mesaj['channel_id']}>\n"
+                            f"**Yeni Kanal:** <#{kanal_id}>\n"
+                            f"**Oluşturan:** <@{self.ana_view.mesaj['created_by']}>"
+                        ),
+                        inline=False
+                    )
+                    
+                    log_embed.set_footer(text=f"Düzenleyen Kullanıcı ID: {interaction.user.id}")
+                    await log_channel.send(embed=log_embed)
+                
+                # Ana menüye dönüş butonu
+                view = OtomatikMesajlarView(self.ana_view.cog, self.ana_view.user)
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    f"Kanal güncellenirken bir hata oluştu. Mesaj bulunamadı veya güncellenemedi.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Kanal güncellenirken bir hata oluştu: {str(e)}",
+                ephemeral=True
+            )
 
 class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle"):
     def __init__(self, cog, user, mesaj):
@@ -2124,9 +2710,9 @@ class MesajDetayView(discord.ui.View):
                 print(f"MesajDetayView on_timeout edit error: {e}")
                 pass
     
-    @discord.ui.button(label="Düzenle", style=discord.ButtonStyle.blurple, emoji="✏️", row=0)
-    async def duzenle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Düzenleme butonuna tıklandığında"""
+    @discord.ui.button(label="İçerik Düzenle", style=discord.ButtonStyle.blurple, emoji="📝", row=0)
+    async def icerik_duzenle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """İçerik düzenleme butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
@@ -2141,12 +2727,86 @@ class MesajDetayView(discord.ui.View):
                 ephemeral=True
             )
         
-        # Mesaj düzenleme modalını göster
-        await interaction.response.send_modal(OtomatikMesajDuzenleModal(self.cog, self.user, self.mesaj))
+        # İçerik düzenleme modalını göster
+        await interaction.response.send_modal(IcerikDuzenleModal(self.cog, self.user, self.mesaj))
+    
+    @discord.ui.button(label="Zaman Düzenle", style=discord.ButtonStyle.blurple, emoji="⏰", row=0)
+    async def zaman_duzenle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Zaman düzenleme butonuna tıklandığında"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
+        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = interaction.user.guild_permissions.administrator
+        is_owner = self.mesaj['created_by'] == interaction.user.id
+        
+        if not is_admin and not is_owner:
+            return await interaction.response.send_message(
+                "Bu mesajı düzenlemek için yetkiniz yok. Sadece kendi oluşturduğunuz mesajları düzenleyebilirsiniz.",
+                ephemeral=True
+            )
+        
+        # Zaman düzenleme modalını göster
+        await interaction.response.send_modal(ZamanDuzenleModal(self.cog, self.user, self.mesaj))
+    
+    @discord.ui.button(label="Tekrar Düzenle", style=discord.ButtonStyle.blurple, emoji="🔄", row=1)
+    async def tekrar_duzenle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Tekrar sayısı düzenleme butonuna tıklandığında"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
+        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = interaction.user.guild_permissions.administrator
+        is_owner = self.mesaj['created_by'] == interaction.user.id
+        
+        if not is_admin and not is_owner:
+            return await interaction.response.send_message(
+                "Bu mesajı düzenlemek için yetkiniz yok. Sadece kendi oluşturduğunuz mesajları düzenleyebilirsiniz.",
+                ephemeral=True
+            )
+        
+        # Tekrar sayısı düzenleme modalını göster
+        await interaction.response.send_modal(TekrarDuzenleModal(self.cog, self.user, self.mesaj))
+    
+    @discord.ui.button(label="Kanal Düzenle", style=discord.ButtonStyle.blurple, emoji="📻", row=1)
+    async def kanal_duzenle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Kanal düzenleme butonuna tıklandığında"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
+        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = interaction.user.guild_permissions.administrator
+        is_owner = self.mesaj['created_by'] == interaction.user.id
+        
+        if not is_admin and not is_owner:
+            return await interaction.response.send_message(
+                "Bu mesajı düzenlemek için yetkiniz yok. Sadece kendi oluşturduğunuz mesajları düzenleyebilirsiniz.",
+                ephemeral=True
+            )
+        
+        # Kanal düzenleme view'ını göster
+        view = KanalDuzenleView(self.cog, self.user, self.mesaj)
+        
+        embed = discord.Embed(
+            title="📋 Kanal Seç",
+            description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+            color=0x3498db
+        )
+        embed.set_footer(text=f"Sayfa {view.sayfa + 1}/{view.toplam_sayfa} • Toplam {len(view.text_channels)} kanal")
+        
+        await interaction.response.send_message(
+            embed=embed,
+            view=view,
+            ephemeral=True
+        )
+        view.message = await interaction.original_response()
     
 
     
-    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.secondary, emoji="◀️", row=1)
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.secondary, emoji="◀️", row=2)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Geri dön butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
@@ -2303,7 +2963,9 @@ class KullaniciNotlariView(discord.ui.View):
         if recent_notes:
             notes_text = ""
             for note in recent_notes:
-                created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m %H:%M')
+                created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+                created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+                created_date = created_date_tr.strftime('%d.%m %H:%M')
                 content_preview = note['note_content'][:80] + "..." if len(note['note_content']) > 80 else note['note_content']
                 notes_text += f"**#{note['id']}** - <@{note['user_id']}> ({note['username']})\n"
                 notes_text += f"└ {content_preview}\n"
@@ -2318,7 +2980,34 @@ class KullaniciNotlariView(discord.ui.View):
         embed.set_footer(text=f"Sayfa {self.current_page + 1} • Kullanım: Aşağıdaki butonları kullanın")
         return embed
     
-    @discord.ui.button(label="🔍 Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=0)
+    @discord.ui.button(label="Not Ekle", style=discord.ButtonStyle.green, emoji="➕", row=0)
+    async def add_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not ekleme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = AddNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Not Düzenle", style=discord.ButtonStyle.blurple, emoji="✏️", row=0)
+    async def edit_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not düzenleme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = EditNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Not Sil", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    async def delete_note_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Not silme modalını açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        
+        modal = DeleteNoteModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Not Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=1)
     async def search_notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Not arama modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2327,7 +3016,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = SearchNotesModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="👤 Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=0)
+    @discord.ui.button(label="Kullanıcıya Göre Filtrele", style=discord.ButtonStyle.blurple, emoji="👤", row=1)
     async def filter_user_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Kullanıcıya göre filtreleme modalını açar"""
         if interaction.user.id != self.user.id:
@@ -2336,7 +3025,7 @@ class KullaniciNotlariView(discord.ui.View):
         modal = FilterUserModal(self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="📊 Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
+    @discord.ui.button(label="Detaylı İstatistikler", style=discord.ButtonStyle.secondary, emoji="📊", row=2)
     async def detailed_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Detaylı istatistikleri gösterir"""
         if interaction.user.id != self.user.id:
@@ -2344,7 +3033,7 @@ class KullaniciNotlariView(discord.ui.View):
         
         await self.show_detailed_stats(interaction)
     
-    @discord.ui.button(label="⬅️ Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1)
+    @discord.ui.button(label="Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=2)
     async def previous_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Önceki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -2357,7 +3046,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu ilk sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="➡️ Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=1)
+    @discord.ui.button(label="Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=2)
     async def next_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sonraki sayfaya gider"""
         if interaction.user.id != self.user.id:
@@ -2374,7 +3063,7 @@ class KullaniciNotlariView(discord.ui.View):
         else:
             await interaction.response.send_message("Bu son sayfa!", ephemeral=True)
     
-    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=2)
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=3)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ana panele dön"""
         if interaction.user.id != self.user.id:
@@ -2467,36 +3156,72 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
         
     search_term = discord.ui.TextInput(
         label="Arama Terimi",
-        placeholder="Kullanıcı adı veya not içeriği...",
+        placeholder="Not ID (#123), Kullanıcı ID (123456789) veya not içeriği...",
         max_length=100,
         required=True
     )
     
     async def on_submit(self, interaction: discord.Interaction):
         db = await get_db()
-        notes = await db.search_user_notes(self.search_term.value, interaction.guild.id, limit=10)
+        search_value = self.search_term.value.strip()
+        notes = []
+        search_type = ""
+        
+        # Not ID ile arama (# ile başlıyorsa veya küçük sayıysa)
+        if search_value.startswith("#"):
+            note_id_str = search_value[1:].strip()
+            if note_id_str.isdigit():
+                note_id = int(note_id_str)
+                note = await db.get_note_by_id(note_id, interaction.guild.id)
+                if note:
+                    notes = [note]
+                search_type = f"Not ID (#{note_id})"
+        # Sayı ise - Not ID veya Kullanıcı ID olarak arama
+        elif search_value.isdigit():
+            num_value = int(search_value)
+            # Küçük sayılar (< 10000) muhtemelen Not ID
+            if num_value < 10000:
+                note = await db.get_note_by_id(num_value, interaction.guild.id)
+                if note:
+                    notes = [note]
+                    search_type = f"Not ID (#{num_value})"
+                else:
+                    # Not ID olarak bulunamadı, Kullanıcı ID olarak dene
+                    notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+                    search_type = "Kullanıcı ID"
+            else:
+                # Büyük sayılar muhtemelen Kullanıcı ID
+                notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+                search_type = "Kullanıcı ID"
+        else:
+            # Metin arama - not içeriğinde ara
+            notes = await db.search_user_notes(search_value, interaction.guild.id, limit=10)
+            search_type = "Not içeriği"
         
         if not notes:
             await interaction.response.send_message(
-                f"🔍 `{self.search_term.value}` için sonuç bulunamadı.",
+                f"🔍 `{search_value}` {search_type} için sonuç bulunamadı.",
                 ephemeral=True
             )
             return
         
         embed = discord.Embed(
-            title=f"🔍 Arama Sonuçları: '{self.search_term.value}'",
-            description=f"**Bulunan Not Sayısı:** {len(notes)}",
+            title=f"🔍 Arama Sonuçları: '{search_value}'",
+            description=f"**Arama Türü:** {search_type}\n**Bulunan Not Sayısı:** {len(notes)}",
             color=0x3498db,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
         
         for note in notes[:5]:  # İlk 5 sonucu göster
-            created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+            created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+            created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+            created_date = created_date_tr.strftime('%d.%m.%Y %H:%M')
             content_preview = note['note_content'][:150] + "..." if len(note['note_content']) > 150 else note['note_content']
             
             embed.add_field(
                 name=f"Not #{note['id']} - {note['username']}",
-                value=f"**İçerik:** {content_preview}\n"
+                value=f"**Kullanıcı ID:** `{note['user_id']}`\n"
+                      f"**İçerik:** {content_preview}\n"
                       f"**Ekleyen:** {note['created_by_username']}\n"
                       f"**Tarih:** {created_date}",
                 inline=False
@@ -2572,7 +3297,9 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
         )
         
         for note in notes[:5]:  # İlk 5 notu göster
-            created_date = datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')
+            created_date_utc = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+            created_date_tr = created_date_utc.astimezone(pytz.timezone('Europe/Istanbul'))
+            created_date = created_date_tr.strftime('%d.%m.%Y %H:%M')
             content_preview = note['note_content'][:200] + "..." if len(note['note_content']) > 200 else note['note_content']
             
             embed.add_field(
@@ -2589,6 +3316,364 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
             embed.set_thumbnail(url=user.display_avatar.url)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
+    """Not ekleme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    user_input = discord.ui.TextInput(
+        label="Kullanıcı ID veya @kullanıcı",
+        placeholder="123456789012345678 veya @kullanıcı",
+        max_length=100,
+        required=True
+    )
+    
+    note_content = discord.ui.TextInput(
+        label="Not İçeriği",
+        placeholder="Bu kullanıcı hakkında not yazın...",
+        style=discord.TextStyle.paragraph,
+        max_length=1500,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        user_input = self.user_input.value.strip()
+        content = self.note_content.value.strip()
+        
+        # Kullanıcı ID'sini çıkar
+        user_id = None
+        if user_input.startswith('<@') and user_input.endswith('>'):
+            # Mention formatı
+            user_id_str = user_input[2:-1]
+            if user_id_str.startswith('!'):
+                user_id_str = user_id_str[1:]
+            try:
+                user_id = int(user_id_str)
+            except ValueError:
+                pass
+        elif user_input.isdigit():
+            user_id = int(user_input)
+        
+        if not user_id:
+            await interaction.response.send_message(
+                "❌ Geçerli bir kullanıcı ID'si veya mention girin!",
+                ephemeral=True
+            )
+            return
+        
+        # Kullanıcıyı bul
+        user = interaction.guild.get_member(user_id) or await interaction.client.fetch_user(user_id)
+        if not user:
+            await interaction.response.send_message(
+                "❌ Kullanıcı bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Notu ekle
+        db = await get_db()
+        username = user.global_name or user.name
+        discriminator = user.discriminator if user.discriminator != "0" else None
+        
+        note_id = await db.add_user_note(
+            user_id=user.id,
+            username=username,
+            discriminator=discriminator,
+            note_content=content,
+            created_by=interaction.user.id,
+            created_by_username=interaction.user.global_name or interaction.user.name,
+            guild_id=interaction.guild.id
+        )
+        
+        # Başarı mesajı
+        embed = discord.Embed(
+            title="✅ Not Başarıyla Eklendi",
+            description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
+                       f"**Not ID:** `{note_id}`\n"
+                       f"**İçerik:** {content[:100]}{'...' if len(content) > 100 else ''}",
+            color=0x00ff00,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Sunucu-log kanalına bildirim gönder
+        try:
+            log_channel = interaction.client.get_channel(1365956201539571835)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📝 Yeni Kullanıcı Notu Eklendi",
+                    description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
+                               f"**Not ID:** `{note_id}`\n"
+                               f"**Ekleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                    color=0x3498db,
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(
+                    name="Not İçeriği",
+                    value=content[:1024] if len(content) <= 1024 else content[:1021] + "...",
+                    inline=False
+                )
+                log_embed.set_thumbnail(url=user.display_avatar.url)
+                log_embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
+                await log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"Sunucu-log kanalına not ekleme bildirimi gönderilemedi: {e}")
+
+
+class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
+    """Not düzenleme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    note_id_input = discord.ui.TextInput(
+        label="Not ID",
+        placeholder="Düzenlenecek notun ID'si",
+        max_length=20,
+        required=True
+    )
+    
+    new_content = discord.ui.TextInput(
+        label="Yeni Not İçeriği",
+        placeholder="Yeni not içeriğini yazın...",
+        style=discord.TextStyle.paragraph,
+        max_length=1500,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            note_id = int(self.note_id_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Geçerli bir not ID'si girin!",
+                ephemeral=True
+            )
+            return
+        
+        new_content = self.new_content.value.strip()
+        
+        db = await get_db()
+        
+        # Önce notu kontrol et
+        note = await db.get_note_by_id(note_id, interaction.guild.id)
+        if not note:
+            await interaction.response.send_message(
+                f"❌ `{note_id}` ID'li not bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Notu güncelle
+        success = await db.update_user_note(note_id, new_content, interaction.guild.id)
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Not Başarıyla Güncellendi",
+                description=f"**Not ID:** `{note_id}`\n"
+                           f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                           f"**Eski İçerik:** {note['note_content'][:100]}{'...' if len(note['note_content']) > 100 else ''}\n"
+                           f"**Yeni İçerik:** {new_content[:100]}{'...' if len(new_content) > 100 else ''}",
+                color=0x00ff00,
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Sunucu-log kanalına bildirim gönder
+            try:
+                log_channel = interaction.client.get_channel(1365956201539571835)
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="✏️ Kullanıcı Notu Güncellendi",
+                        description=f"**Not ID:** `{note_id}`\n"
+                                   f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                                   f"**Düzenleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        color=0xf39c12,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    log_embed.add_field(
+                        name="Eski İçerik",
+                        value=note['note_content'][:1024] if len(note['note_content']) <= 1024 else note['note_content'][:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.add_field(
+                        name="Yeni İçerik",
+                        value=new_content[:1024] if len(new_content) <= 1024 else new_content[:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
+                    await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Sunucu-log kanalına not güncelleme bildirimi gönderilemedi: {e}")
+        else:
+            await interaction.response.send_message(
+                "❌ Not güncellenirken bir hata oluştu!",
+                ephemeral=True
+            )
+
+
+class DeleteNoteModal(discord.ui.Modal, title="Not Sil"):
+    """Not silme modal'ı"""
+    
+    def __init__(self, notes_view):
+        super().__init__()
+        self.notes_view = notes_view
+        
+    note_id_input = discord.ui.TextInput(
+        label="Not ID",
+        placeholder="Silinecek notun ID'si",
+        max_length=20,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            note_id = int(self.note_id_input.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Geçerli bir not ID'si girin!",
+                ephemeral=True
+            )
+            return
+        
+        db = await get_db()
+        
+        # Önce notu kontrol et
+        note = await db.get_note_by_id(note_id, interaction.guild.id)
+        if not note:
+            await interaction.response.send_message(
+                f"❌ `{note_id}` ID'li not bulunamadı!",
+                ephemeral=True
+            )
+            return
+        
+        # Onay için view oluştur
+        view = DeleteNoteConfirmView(note, interaction.user)
+        
+        embed = discord.Embed(
+            title="⚠️ Not Silme Onayı",
+            description=f"**Not ID:** `{note_id}`\n"
+                       f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                       f"**İçerik:** {note['note_content'][:200]}{'...' if len(note['note_content']) > 200 else ''}\n"
+                       f"**Ekleyen:** {note['created_by_username']}\n"
+                       f"**Tarih:** {datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')}\n\n"
+                       f"Bu notu silmek istediğinizden emin misiniz?",
+            color=0xff6b6b,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class DeleteNoteConfirmView(discord.ui.View):
+    """Not silme onay view'ı"""
+    
+    def __init__(self, note, user):
+        super().__init__(timeout=60)
+        self.note = note
+        self.user = user
+    
+    @discord.ui.button(label="🗑️ Sil", style=discord.ButtonStyle.danger)
+    async def confirm_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message(
+                "❌ Bu işlemi sadece komutu kullanan kişi yapabilir!",
+                ephemeral=True
+            )
+            return
+        
+        db = await get_db()
+        success = await db.delete_user_note(self.note['id'], interaction.guild.id)
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Not Başarıyla Silindi",
+                description=f"**Not ID:** `{self.note['id']}`\n"
+                           f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
+                           f"**Silinen İçerik:** {self.note['note_content'][:100]}{'...' if len(self.note['note_content']) > 100 else ''}",
+                color=0x00ff00,
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            embed.set_footer(text=f"Silen: {interaction.user.name}")
+            
+            # Butonları devre dışı bırak
+            for item in self.children:
+                item.disabled = True
+            
+            await interaction.response.edit_message(embed=embed, view=self)
+            
+            # Sunucu-log kanalına bildirim gönder
+            try:
+                log_channel = interaction.client.get_channel(1365956201539571835)
+                if log_channel:
+                    log_embed = discord.Embed(
+                        title="🗑️ Kullanıcı Notu Silindi",
+                        description=f"**Not ID:** `{self.note['id']}`\n"
+                                   f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
+                                   f"**Silen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        color=0xe74c3c,
+                        timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    )
+                    log_embed.add_field(
+                        name="Silinen Not İçeriği",
+                        value=self.note['note_content'][:1024] if len(self.note['note_content']) <= 1024 else self.note['note_content'][:1021] + "...",
+                        inline=False
+                    )
+                    log_embed.add_field(
+                        name="Not Bilgileri",
+                        value=f"**Ekleyen:** {self.note['created_by_username']}\n"
+                              f"**Tarih:** {datetime.datetime.fromisoformat(self.note['created_at']).strftime('%d.%m.%Y %H:%M')}",
+                        inline=False
+                    )
+                    log_embed.set_footer(text=f"Silen: {interaction.user.name}")
+                    await log_channel.send(embed=log_embed)
+            except Exception as e:
+                print(f"Sunucu-log kanalına not silme bildirimi gönderilemedi: {e}")
+        else:
+            await interaction.response.send_message(
+                "❌ Not silinirken bir hata oluştu!",
+                ephemeral=True
+            )
+    
+    @discord.ui.button(label="❌ İptal", style=discord.ButtonStyle.secondary)
+    async def cancel_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message(
+                "❌ Bu işlemi sadece komutu kullanan kişi yapabilir!",
+                ephemeral=True
+            )
+            return
+        
+        embed = discord.Embed(
+            title="❌ İşlem İptal Edildi",
+            description="Not silme işlemi iptal edildi.",
+            color=0x95a5a6,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        
+        # Butonları devre dışı bırak
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def on_timeout(self):
+        # Timeout olduğunda butonları devre dışı bırak
+        for item in self.children:
+            item.disabled = True
+        try:
+            await self.message.edit(view=self)
+        except:
+            pass
 
 
 class YetkiliPanel(commands.Cog):

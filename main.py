@@ -177,7 +177,6 @@ async def load_extensions():
         'cogs.extra_features', # Ekstra özellikler sistemi
         'cogs.bump_tracker',   # Bump takip sistemi
         'cogs.weekly_reports', # Haftalık rapor sistemi
-        'cogs.user_notes',     # Kullanıcı notları sistemi
         'cogs.system_monitor'  # Sistem izleme ve uyarı modülü
     ]
     
@@ -442,9 +441,9 @@ async def spam_stats_cmd(interaction: discord.Interaction, gun: int = 30):
         )
 
 # Veritabanı temizlik komutu
-@admin_group.command(name="veritabani-temizle", description="Eski spam, bump ve member loglarını temizler")
+@admin_group.command(name="veritabani-temizle", description="Eski spam, bump, member ve staff online loglarını temizler")
 @app_commands.default_permissions(administrator=True)
-async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int = 90, bump_gun: int = 365, member_gun: int = 90):
+async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int = 90, bump_gun: int = 365, member_gun: int = 90, staff_online_gun: int = 14):
     """Veritabanı temizlik komutu"""
     # Kullanıcı ID kontrolü
     if interaction.user.id != 315888596437696522:
@@ -458,7 +457,7 @@ async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int =
         db = await get_db()
         
         # Temizlik işlemini başlat
-        results = await db.cleanup_all_old_logs(spam_days=spam_gun, bump_days=bump_gun, member_days=member_gun)
+        results = await db.cleanup_all_old_logs(spam_days=spam_gun, bump_days=bump_gun, member_days=member_gun, staff_online_days=staff_online_gun)
         
         # Sonuç embed'i oluştur
         embed = discord.Embed(
@@ -472,6 +471,7 @@ async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int =
             value=f"**Silinen Spam Kaydı:** {results['spam_logs_deleted']}\n"
                   f"**Silinen Bump Kaydı:** {results['bump_logs_deleted']}\n"
                   f"**Silinen Member Kaydı:** {results['member_logs_deleted']}\n"
+                  f"**Silinen Online Session:** {results['staff_online_sessions_deleted']}\n"
                   f"**Toplam Silinen:** {results['total_deleted']}",
             inline=False
         )
@@ -480,7 +480,8 @@ async def cleanup_database_cmd(interaction: discord.Interaction, spam_gun: int =
             name="⚙️ Temizlik Ayarları",
             value=f"**Spam Log Limit:** {spam_gun} gün\n"
                   f"**Bump Log Limit:** {bump_gun} gün\n"
-                  f"**Member Log Limit:** {member_gun} gün",
+                  f"**Member Log Limit:** {member_gun} gün\n"
+                  f"**Online Session Limit:** {staff_online_gun} gün",
             inline=False
         )
         

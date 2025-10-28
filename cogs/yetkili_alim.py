@@ -352,6 +352,15 @@ class YetkiliAlim(commands.Cog):
             answers=app_data["answers"]
         )
         
+        # Kullanıcı notlarını kontrol et
+        user_notes = []
+        try:
+            notes = await db.get_user_notes(user.id, guild.id, limit=5)
+            if notes:
+                user_notes = notes
+        except Exception as e:
+            print(f"Kullanıcı notları alınırken hata: {e}")
+        
         # Başvuru özetini oluşturma - daha şık bir başvuru özeti
         embed = discord.Embed(
             title="📑 Yetkili Başvurusu",
@@ -383,6 +392,26 @@ class YetkiliAlim(commands.Cog):
         
         # Veritabanı ID'sini ekle (yöneticilerin referans için kullanması için)
         embed.add_field(name="📊 Sistem Bilgisi", value=f"Başvuru ID: `{application_id}`", inline=False)
+        
+        # Kullanıcı notları bölümü (varsa) - formun en altında göze çarpacak şekilde
+        if user_notes:
+            notes_text = []
+            for i, note in enumerate(user_notes, 1):
+                created_date = datetime.datetime.fromisoformat(note['created_at']).replace(tzinfo=datetime.timezone.utc)
+                created_date_tr = created_date.astimezone(turkey_tz).strftime('%d.%m.%Y')
+                content_preview = note['note_content'][:80] + "..." if len(note['note_content']) > 80 else note['note_content']
+                notes_text.append(f"**#{note['id']}** - {created_date_tr}\n└ {content_preview}\n└ Ekleyen: {note['created_by_username']}")
+            
+            notes_field_value = "\n\n".join(notes_text)
+            # Eğer çok uzunsa kısalt
+            if len(notes_field_value) > 1024:
+                notes_field_value = notes_field_value[:1000] + f"\n\n*...ve {len(user_notes) - 2} not daha var*"
+            
+            embed.add_field(
+                name="⚠️ KULLANICI HAKKINDA NOTLAR ⚠️",
+                value=notes_field_value,
+                inline=False
+            )
         
         # Başvurular kanalına gönderme
         submissions_channel = discord.utils.get(guild.text_channels, name="başvurular")

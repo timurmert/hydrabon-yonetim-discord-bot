@@ -15,7 +15,7 @@ class SystemMonitor(commands.Cog):
 
         # Eşik değerler
         self.CPU_THRESHOLD = 85.0  # %
-        self.RAM_THRESHOLD = 85.0  # %
+        self.RAM_THRESHOLD = 80.0  # %
         self.DISK_THRESHOLD = 90.0  # % (en dolu bölüm)
 
         # Kontrol aralığı ve uyarı soğuma süresi
@@ -136,7 +136,7 @@ class SystemMonitor(commands.Cog):
         embed.add_field(name="Disk Kullanımı", value=f"{disk_percent:.1f}% (eşik {self.DISK_THRESHOLD:.0f}%)", inline=True)
 
         try:
-            await channel.send(embed=embed)
+            await channel.send(content=f"⚠️ Sistem Kaynak Uyarısı ||@everyone||", embed=embed)
             for key in triggered_keys:
                 self._mark_alert(key)
         except Exception:

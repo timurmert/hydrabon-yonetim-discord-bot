@@ -255,6 +255,52 @@ class WeeklyReports(commands.Cog):
     async def before_presence_snapshot_task(self):
         await self.bot.wait_until_ready()
 
+    def _compute_daily_averages(self, snapshots, turkey_tz):
+        """Günlük ortalamalar hesaplar (Pazartesi-Pazar)"""
+        if not snapshots:
+            return {
+                'monday': None, 'tuesday': None, 'wednesday': None, 'thursday': None,
+                'friday': None, 'saturday': None, 'sunday': None,
+                'samples': 0
+            }
+        
+        # Günlere göre grupla
+        daily_buckets = {
+            0: [],  # Pazartesi
+            1: [],  # Salı
+            2: [],  # Çarşamba
+            3: [],  # Perşembe
+            4: [],  # Cuma
+            5: [],  # Cumartesi
+            6: []   # Pazar
+        }
+        
+        for snap in snapshots:
+            try:
+                # snapshot_time string olabilir; ISO formatlı
+                snap_time = snap['snapshot_time']
+                dt = datetime.datetime.fromisoformat(snap_time.replace('Z', '+00:00')) if isinstance(snap_time, str) else snap_time
+                dt_tr = dt.astimezone(turkey_tz)
+                weekday = dt_tr.weekday()  # 0=Pazartesi, 6=Pazar
+                val = int(snap['online_count'])
+                daily_buckets[weekday].append(val)
+            except Exception:
+                continue
+        
+        def avg(lst):
+            return (sum(lst) / len(lst)) if lst else None
+        
+        day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        daily_averages = {}
+        total_samples = 0
+        
+        for i, day_name in enumerate(day_names):
+            daily_averages[day_name] = avg(daily_buckets[i])
+            total_samples += len(daily_buckets[i])
+        
+        daily_averages['samples'] = total_samples
+        return daily_averages
+
     def _compute_presence_averages(self, snapshots, turkey_tz):
         """6 saatlik dilimler, gündüz/gece ve genel ortalamaları hesaplar"""
         if not snapshots:
@@ -359,6 +405,58 @@ class WeeklyReports(commands.Cog):
         except Exception as e:
             print(f"Haftalık rapor oluşturma hatası: {e}")
     
+    async def get_moderation_actions(self, guild, start_date, end_date):
+        """Belirtilen tarih aralığında gerçekleşen kick/ban işlemlerini audit log'dan alır"""
+        moderation_data = {
+            'kicks': [],
+            'bans': [],
+            'total': 0
+        }
+        
+        try:
+            # Audit log'dan kick ve ban işlemlerini al
+            async for entry in guild.audit_logs(
+                after=start_date,
+                before=end_date,
+                action=discord.AuditLogAction.kick,
+                limit=100
+            ):
+                kick_data = {
+                    'user_id': entry.target.id if entry.target else 0,
+                    'username': str(entry.target) if entry.target else "Bilinmeyen Kullanıcı",
+                    'moderator_id': entry.user.id if entry.user else 0,
+                    'moderator_name': str(entry.user) if entry.user else "Bilinmeyen Moderatör",
+                    'reason': entry.reason,
+                    'action_time': entry.created_at
+                }
+                moderation_data['kicks'].append(kick_data)
+            
+            async for entry in guild.audit_logs(
+                after=start_date,
+                before=end_date,
+                action=discord.AuditLogAction.ban,
+                limit=100
+            ):
+                ban_data = {
+                    'user_id': entry.target.id if entry.target else 0,
+                    'username': str(entry.target) if entry.target else "Bilinmeyen Kullanıcı",
+                    'moderator_id': entry.user.id if entry.user else 0,
+                    'moderator_name': str(entry.user) if entry.user else "Bilinmeyen Moderatör",
+                    'reason': entry.reason,
+                    'action_time': entry.created_at
+                }
+                moderation_data['bans'].append(ban_data)
+            
+            moderation_data['total'] = len(moderation_data['kicks']) + len(moderation_data['bans'])
+            
+        except discord.Forbidden:
+            # Audit log izni yok
+            pass
+        except Exception as e:
+            print(f"Moderation actions alınırken hata: {e}")
+        
+        return moderation_data
+    
     async def cleanup_old_data_after_report(self, report_start_date):
         """Haftalık rapor gönderildikten sonra eski verileri temizler"""
         try:
@@ -376,13 +474,13 @@ class WeeklyReports(commands.Cog):
                 ''', (cleanup_cutoff.isoformat(),))
                 
                 # Eski bump loglarını temizle (60 gün öncesi)
-                bump_cutoff = report_start_date - datetime.timedelta(days=60)
+                bump_cutoff = report_start_date - datetime.timedelta(days=30)
                 await cursor.execute('''
                 DELETE FROM bump_logs WHERE bump_time < ?
                 ''', (bump_cutoff.isoformat(),))
                 
                 # Eski spam loglarını temizle (30 gün öncesi)  
-                spam_cutoff = report_start_date - datetime.timedelta(days=30)
+                spam_cutoff = report_start_date - datetime.timedelta(days=14)
                 await cursor.execute('''
                 DELETE FROM spam_logs WHERE spam_time < ?
                 ''', (spam_cutoff.isoformat(),))
@@ -405,6 +503,12 @@ class WeeklyReports(commands.Cog):
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
                 ''', (presence_cutoff.isoformat(),))
+                
+                # Eski staff online session'larını da temizle (2 hafta öncesi)
+                staff_online_cutoff = report_start_date - datetime.timedelta(days=14)
+                deleted_sessions = await db.cleanup_old_staff_online_sessions(14)
+                if deleted_sessions > 0:
+                    print(f"Haftalık rapor - {deleted_sessions} eski online session silindi")
                 
                 await db.connection.commit()
                 
@@ -453,6 +557,39 @@ class WeeklyReports(commands.Cog):
                       f"**Mevcut Üye:** {guild.member_count} kişi",
                 inline=True
             )
+            
+            # === KAYIT SİSTEMİ İSTATİSTİKLERİ ===
+            try:
+                registration_stats = await db.get_registration_stats(start_date, end_date)
+                
+                if registration_stats['total_registrations'] > 0:
+                    reg_value = f"**Toplam Kayıt:** {registration_stats['total_registrations']} kişi\n"
+                    reg_value += f"**Günlük Ortalama:** {registration_stats['daily_average']} kayıt"
+                    
+                    # En aktif saatleri ekle (varsa)
+                    if registration_stats.get('top_hours'):
+                        reg_value += "\n\n**🕐 En Aktif Saatler:**"
+                        for hour_data in registration_stats['top_hours'][:3]:
+                            hour = hour_data['hour']
+                            count = hour_data['count']
+                            reg_value += f"\n• {hour:02d}:00-{hour+1:02d}:00 → {count} kayıt"
+                    
+                    embed.add_field(
+                        name="📝 Kayıt Sistemi",
+                        value=reg_value,
+                        inline=True
+                    )
+                else:
+                    # Kayıt yoksa bile alan ekle (düzen bozulmasın)
+                    if 'error' not in registration_stats:
+                        embed.add_field(
+                            name="📝 Kayıt Sistemi",
+                            value="Bu hafta kayıt aktivitesi tespit edilmedi.",
+                            inline=True
+                        )
+            except Exception as e:
+                # Hata durumunda sessiz geç (rapor bozulmasın)
+                print(f"Kayıt istatistikleri eklenirken hata: {e}")
             
             # === BUMP İSTATİSTİKLERİ ===
             # Bump verilerini al (son 7 gün)
@@ -542,58 +679,185 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
-            # === TOP 10 AKTİF YETKİLİ (Mesaj) ===
+            # === MODERATION İŞLEMLERİ (Kick/Ban) ===
             try:
-                # Üst yönetim hariç tutacağımız rol ID'leri
+                moderation_actions = await self.get_moderation_actions(guild, start_date, end_date)
+                if moderation_actions['total'] > 0:
+                    lines = []
+                    # Özet istatistikleri
+                    lines.append(f"**Toplam İşlem:** {moderation_actions['total']}")
+                    if moderation_actions['kicks']:
+                        lines.append(f"• 👢 **Atma (Kick):** {len(moderation_actions['kicks'])} kişi")
+                    if moderation_actions['bans']:
+                        lines.append(f"• 🔨 **Yasaklama (Ban):** {len(moderation_actions['bans'])} kişi")
+                    
+                    # Detaylı liste (maksimum 8 kişi)
+                    all_actions = []
+                    
+                    # Kick işlemleri
+                    for kick in moderation_actions['kicks']:
+                        action_time = kick['action_time'].astimezone(self.turkey_tz).strftime('%d.%m %H:%M')
+                        reason = kick['reason'] or "Sebep belirtilmedi"
+                        if len(reason) > 50:
+                            reason = reason[:47] + "..."
+                        all_actions.append({
+                            'time': kick['action_time'],
+                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Sebep: {reason}"
+                        })
+                    
+                    # Ban işlemleri
+                    for ban in moderation_actions['bans']:
+                        action_time = ban['action_time'].astimezone(self.turkey_tz).strftime('%d.%m %H:%M')
+                        reason = ban['reason'] or "Sebep belirtilmedi"
+                        if len(reason) > 50:
+                            reason = reason[:47] + "..."
+                        all_actions.append({
+                            'time': ban['action_time'],
+                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Sebep: {reason}"
+                        })
+                    
+                    # Zamana göre sırala (en yeni önce)
+                    all_actions.sort(key=lambda x: x['time'], reverse=True)
+                    
+                    # İlk 8 tanesini göster
+                    if all_actions:
+                        lines.append("")  # Boş satır
+                        for action in all_actions[:8]:
+                            lines.append(action['text'])
+                        
+                        if len(all_actions) > 8:
+                            lines.append(f"\n*...ve {len(all_actions) - 8} işlem daha*")
+                    
+                    embed.add_field(
+                        name="⚖️ Moderation İşlemleri",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    embed.add_field(
+                        name="⚖️ Moderation İşlemleri",
+                        value="Bu hafta kick/ban işlemi gerçekleştirilmedi.",
+                        inline=False
+                    )
+            except Exception as e:
+                embed.add_field(
+                    name="⚖️ Moderation İşlemleri",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri, Çevrim İçi Saatleri ve Bump Sayıları) ===
+            try:
+                # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
                     1029089723110674463,  # KURUCU
                     1029089727061692522,  # YK BAŞKANI
-                    1029089731314720798,  # YK ÜYELERİ
                 }
-                # Veritabanından adayları al (fazla getirip filtreleyeceğiz)
-                top_candidates = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=20)
-                # Filtre: yetkili olmalı ve excluded rollerden hiçbiri olmamalı
+                
+                # Dahil edilecek yetkili rol ID'leri (YETKİLİ_HİYERARSİ'den çek)
                 try:
                     from cogs.yetkili_panel import YETKILI_HIYERARSI
+                    included_role_ids = set(YETKILI_HIYERARSI)
                 except Exception:
-                    YETKILI_HIYERARSI = []
-                def is_staff(member):
+                    # Fallback: Manuel rol ID'leri
+                    included_role_ids = {
+                        1163918714081644554,  # STAJYER
+                        1200919832393154680,  # ASİSTAN
+                        1163918107501412493,  # MODERATÖR
+                        1163918130192580608,  # ADMİN
+                        1412843482980290711,  # YÖNETİM KURULU ADAYLARI
+                        1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
+                    }
+                
+                # Veritabanından tüm yetkili mesaj verilerini al
+                message_stats = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
+                
+                # Yetkili çevrim içi saatleri verilerini al
+                staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
+                
+                # Bump istatistiklerini al (haftalık için özel sorgu)
+                # start_date ve end_date arasındaki bump verilerini al
+                bump_user_stats = {}
+                async with db.connection.cursor() as cursor:
+                    await cursor.execute('''
+                    SELECT user_id, COUNT(*) as bump_count
+                    FROM bump_logs
+                    WHERE guild_id = ? AND bump_time >= ? AND bump_time < ?
+                    GROUP BY user_id
+                    ''', (guild.id, start_date.isoformat(), end_date.isoformat()))
+                    
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        bump_user_stats[row[0]] = row[1]
+                
+                def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
-                    return any(rid in user_role_ids for rid in YETKILI_HIYERARSI)
+                    return any(rid in user_role_ids for rid in included_role_ids)
+                
                 def is_excluded(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in excluded_role_ids)
+                
+                # Mesaj istatistiklerini dictionary'ye çevir
+                message_stats_dict = {stat['user_id']: stat['total_messages'] for stat in message_stats}
+                
+                # Online saatleri dictionary'ye çevir
+                online_stats_dict = {stat['user_id']: stat for stat in staff_online_stats}
+                
+                # Tüm yetkililer için results listesi oluştur
                 results = []
-                for row in top_candidates:
-                    member = guild.get_member(row['user_id'])
-                    if not member:
-                        continue
-                    if not is_staff(member):
+                
+                # Sunucudaki tüm üyeleri kontrol et
+                for member in guild.members:
+                    if not is_included_staff(member):
                         continue
                     if is_excluded(member):
                         continue
-                    results.append((member, row['total_messages']))
-                # Sırala ve top 10 al
-                results.sort(key=lambda x: x[1], reverse=True)
-                top10 = results[:10]
-                if top10:
+                    
+                    # Mesaj sayısını al (yoksa 0)
+                    msg_count = message_stats_dict.get(member.id, 0)
+                    
+                    # Online istatistiklerini al
+                    online_data = online_stats_dict.get(member.id, {
+                        'total_hours': 0,
+                        'daily_average': 0
+                    })
+                    
+                    # Bump sayısını al (yoksa 0)
+                    bump_count = bump_user_stats.get(member.id, 0)
+                    
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count))
+                
+                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra bump sayısına göre)
+                results.sort(key=lambda x: (x[1], x[2], x[4]), reverse=True)
+                
+                if results:
                     lines = []
-                    for i, (member, count) in enumerate(top10, 1):
-                        lines.append(f"**{i}.** {member.mention} - {count} mesaj")
+                    for i, (member, msg_count, online_hours, daily_avg, bump_count) in enumerate(results, 1):
+                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {bump_count} bump")
+                    
+                    # Çok uzunsa bölümlere ayır
+                    if len(lines) > 20:
+                        # İlk 20'yi göster, kalanları say
+                        first_20 = lines[:20]
+                        remaining_count = len(lines) - 20
+                        first_20.append(f"\n*...ve {remaining_count} yetkili daha*")
+                        lines = first_20
+                    
                     embed.add_field(
-                        name="💬 Haftalık En Aktif 10 Yetkili",
+                        name=f"👥 Aktif Yetkili Kadro - Mesaj, Online & Bump ({len(results)} kişi)",
                         value="\n".join(lines),
                         inline=False
                     )
                 else:
                     embed.add_field(
-                        name="💬 Haftalık En Aktif 10 Yetkili",
-                        value="Bu hafta uygun kriterlerde mesaj aktivitesi bulunamadı.",
+                        name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
+                        value="Bu hafta yetkili kadrosunda aktivite bulunamadı.",
                         inline=False
                     )
             except Exception as e:
                 embed.add_field(
-                    name="💬 Haftalık En Aktif 10 Yetkili",
+                    name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )
@@ -612,26 +876,56 @@ class WeeklyReports(commands.Cog):
                 inline=True
             )
 
-            # === AKTİF KULLANICI ORTALAMALARI (HAFTALIK) ===
+            # === AKTİF KULLANICI ORTALAMALARI ===
             presence_snaps = await db.get_presence_snapshots(guild.id, start_date, end_date)
+            
+            # Günlük ortalamalar
+            daily_stats = self._compute_daily_averages(presence_snaps, turkey_tz)
+            if daily_stats['samples'] > 0:
+                def fmt(v):
+                    return f"{v:.1f}" if v is not None else "-"
+                
+                # Türkçe gün isimleri
+                day_names_tr = {
+                    'monday': 'Pazartesi',
+                    'tuesday': 'Salı', 
+                    'wednesday': 'Çarşamba',
+                    'thursday': 'Perşembe',
+                    'friday': 'Cuma',
+                    'saturday': 'Cumartesi',
+                    'sunday': 'Pazar'
+                }
+                
+                daily_lines = []
+                for day_en, day_tr in day_names_tr.items():
+                    avg_val = daily_stats[day_en]
+                    daily_lines.append(f"**{day_tr}:** {fmt(avg_val)}")
+                
+                embed.add_field(
+                    name="📅 Günlük Aktif Üye Ortalamaları",
+                    value="\n".join(daily_lines),
+                    inline=True
+                )
+            
+            # Saatlik ortalamalar
             presence_stats = self._compute_presence_averages(presence_snaps, turkey_tz)
             if presence_stats['samples'] > 0:
                 r = presence_stats['ranges']
                 def fmt(v):
                     return f"{v:.1f}" if v is not None else "-"
                 lines = [
-                    f"00-06: {fmt(r['00-06'])}",
-                    f"06-12: {fmt(r['06-12'])}",
-                    f"12-18: {fmt(r['12-18'])}",
-                    f"18-00: {fmt(r['18-00'])}",
-                    f"Gündüz (06-18): {fmt(presence_stats['day'])}",
-                    f"Gece (18-06): {fmt(presence_stats['night'])}",
-                    f"Genel Ortalama: {fmt(presence_stats['overall'])}",
+                    f"**00-06:** {fmt(r['00-06'])}",
+                    f"**06-12:** {fmt(r['06-12'])}",
+                    f"**12-18:** {fmt(r['12-18'])}",
+                    f"**18-00:** {fmt(r['18-00'])}",
+                    f"**Gündüz (06-18):** {fmt(presence_stats['day'])}",
+                    f"**Gece (18-06):** {fmt(presence_stats['night'])}",
+                    f"**Genel Ortalama:** {fmt(presence_stats['overall'])}",
                 ]
                 embed.add_field(
-                    name="🟢 Aktif Üye Ortalamaları (Haftalık)",
+                    name="🕐 Saatlik Aktif Üye Ortalamaları",
                     value="\n".join(lines),
-                    inline=False
+                    inline=True
                 )
             
             # Footer ve thumbnail

@@ -8,6 +8,8 @@ class Database:
     def __init__(self, db_path="hydrabon_bot.db"):
         self.db_path = db_path
         self.connection = None
+        self.registration_db_path = "../kayit-sistemi/registration_stats.db"
+        self.registration_connection = None
         
     async def connect(self):
         """Veritabanına bağlanır ve tabloları oluşturur"""
@@ -26,6 +28,11 @@ class Database:
         if self.connection:
             await self.connection.close()
             self.connection = None
+        
+        # Kayıt veritabanı bağlantısını da kapat
+        if self.registration_connection:
+            await self.registration_connection.close()
+            self.registration_connection = None
             
     async def create_tables(self):
         """Gerekli veritabanı tablolarını oluşturur"""
@@ -242,6 +249,37 @@ class Database:
             await cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_staff_changes_action
             ON staff_changes(action, created_at)
+            ''')
+
+            # Yetkili çevrim içi session takibi
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_online_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                session_start TIMESTAMP NOT NULL,
+                session_end TIMESTAMP,
+                status TEXT NOT NULL, -- 'online', 'idle', 'dnd'
+                total_minutes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Staff online sessions için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_online_guild_user
+            ON staff_online_sessions(guild_id, user_id)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_online_time
+            ON staff_online_sessions(session_start, session_end)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_online_guild_time
+            ON staff_online_sessions(guild_id, session_start)
             ''')
 
             # Yetkili mesaj istatistikleri (günlük toplu)
@@ -761,6 +799,22 @@ class Database:
         except Exception as e:
             print(f"Zamanlanmış mesaj güncelleme hatası: {e}")
             return False
+    
+    async def update_scheduled_message_content(self, message_id, message_content):
+        """Zamanlanmış mesajın sadece içeriğini günceller"""
+        return await self.update_scheduled_message(message_id, message_content=message_content)
+    
+    async def update_scheduled_message_schedule(self, message_id, schedule_data):
+        """Zamanlanmış mesajın sadece zaman aralığını günceller"""
+        return await self.update_scheduled_message(message_id, schedule_data=schedule_data)
+    
+    async def update_scheduled_message_repeat(self, message_id, repeat_count):
+        """Zamanlanmış mesajın sadece tekrar sayısını günceller"""
+        return await self.update_scheduled_message(message_id, repeat_count=repeat_count)
+    
+    async def update_scheduled_message_channel(self, message_id, channel_id, channel_name):
+        """Zamanlanmış mesajın sadece kanalını günceller"""
+        return await self.update_scheduled_message(message_id, channel_id=channel_id, channel_name=channel_name)
             
     async def delete_scheduled_message(self, message_id):
         """Zamanlanmış mesajı siler
@@ -926,13 +980,14 @@ class Database:
             
             return count_to_delete
             
-    async def cleanup_all_old_logs(self, spam_days=90, bump_days=365, member_days=90):
+    async def cleanup_all_old_logs(self, spam_days=90, bump_days=365, member_days=90, staff_online_days=14):
         """Tüm eski logları temizler
         
         Args:
             spam_days (int): Spam logları için gün limiti
             bump_days (int): Bump logları için gün limiti
             member_days (int): Member logları için gün limiti
+            staff_online_days (int): Staff online sessions için gün limiti
             
         Returns:
             dict: Temizlik sonuçları
@@ -940,12 +995,14 @@ class Database:
         spam_deleted = await self.cleanup_old_spam_logs(spam_days)
         bump_deleted = await self.cleanup_old_bump_logs(bump_days)
         member_deleted = await self.cleanup_old_member_logs(member_days)
+        staff_online_deleted = await self.cleanup_old_staff_online_sessions(staff_online_days)
         
         return {
             'spam_logs_deleted': spam_deleted,
             'bump_logs_deleted': bump_deleted,
             'member_logs_deleted': member_deleted,
-            'total_deleted': spam_deleted + bump_deleted + member_deleted
+            'staff_online_sessions_deleted': staff_online_deleted,
+            'total_deleted': spam_deleted + bump_deleted + member_deleted + staff_online_deleted
         }
 
     async def cleanup_old_member_logs(self, days=90):
@@ -1389,17 +1446,33 @@ class Database:
             return affected_rows > 0
     
     async def search_user_notes(self, search_term, guild_id, limit=50, offset=0):
-        """Kullanıcı adı veya not içeriğinde arama yapar"""
+        """Kullanıcı ID veya not içeriğinde arama yapar"""
         async with self.connection.cursor() as cursor:
             search_pattern = f"%{search_term}%"
-            await cursor.execute('''
-            SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
-                   created_at, updated_at
-            FROM user_notes 
-            WHERE guild_id = ? AND (username LIKE ? OR note_content LIKE ?)
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            ''', (guild_id, search_pattern, search_pattern, limit, offset))
+            
+            # Kullanıcı ID ile arama yapıp yapmadığını kontrol et
+            is_user_id_search = search_term.isdigit()
+            
+            if is_user_id_search:
+                # Kullanıcı ID ile arama
+                await cursor.execute('''
+                SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
+                       created_at, updated_at
+                FROM user_notes 
+                WHERE guild_id = ? AND user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                ''', (guild_id, int(search_term), limit, offset))
+            else:
+                # Not içeriği ile arama
+                await cursor.execute('''
+                SELECT id, user_id, username, discriminator, note_content, created_by, created_by_username, 
+                       created_at, updated_at
+                FROM user_notes 
+                WHERE guild_id = ? AND note_content LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                ''', (guild_id, search_pattern, limit, offset))
             
             notes = []
             for row in await cursor.fetchall():
@@ -1537,6 +1610,216 @@ class Database:
                     'total_messages': row[2]
                 })
             return results
+
+    async def start_staff_online_session(self, guild_id: int, user_id: int, username: str, status: str):
+        """Yetkili için yeni online session başlatır."""
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            # Önce aktif session'ı kontrol et ve varsa sonlandır
+            await cursor.execute('''
+            UPDATE staff_online_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            # Yeni session başlat
+            await cursor.execute('''
+            INSERT INTO staff_online_sessions (guild_id, user_id, username, session_start, status)
+            VALUES (?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, current_time, status))
+            
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def end_staff_online_session(self, guild_id: int, user_id: int):
+        """Yetkili için aktif online session'ı sonlandırır."""
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE staff_online_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount > 0
+
+    async def get_staff_online_stats(self, guild_id: int, start_date, end_date, user_ids=None):
+        """Belirtilen tarih aralığında yetkililerin online saatlerini döndürür."""
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            if user_ids:
+                # Belirli kullanıcılar için
+                placeholders = ','.join(['?' for _ in user_ids])
+                query = f'''
+                SELECT user_id, MAX(username) as username, 
+                       SUM(COALESCE(total_minutes, CAST((julianday(COALESCE(session_end, ?)) - julianday(session_start)) * 24 * 60 AS INTEGER))) as total_minutes
+                FROM staff_online_sessions
+                WHERE guild_id = ? AND user_id IN ({placeholders}) 
+                AND session_start >= ? AND session_start < ?
+                GROUP BY user_id
+                ORDER BY total_minutes DESC
+                '''
+                params = [end_str, guild_id] + list(user_ids) + [start_str, end_str]
+            else:
+                # Tüm yetkililer için
+                query = '''
+                SELECT user_id, MAX(username) as username, 
+                       SUM(COALESCE(total_minutes, CAST((julianday(COALESCE(session_end, ?)) - julianday(session_start)) * 24 * 60 AS INTEGER))) as total_minutes
+                FROM staff_online_sessions
+                WHERE guild_id = ? AND session_start >= ? AND session_start < ?
+                GROUP BY user_id
+                ORDER BY total_minutes DESC
+                '''
+                params = [end_str, guild_id, start_str, end_str]
+            
+            await cursor.execute(query, params)
+            rows = await cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                total_minutes = row[2] or 0
+                results.append({
+                    'user_id': row[0],
+                    'username': row[1],
+                    'total_minutes': total_minutes,
+                    'total_hours': round(total_minutes / 60, 1),
+                    'daily_average': round(total_minutes / max(1, (end_date - start_date).days), 1)
+                })
+            return results
+
+    async def cleanup_old_staff_online_sessions(self, days_to_keep=14):
+        """Eski staff online session'larını temizler (varsayılan: 2 hafta)."""
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days_to_keep)).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            # Silinecek kayıt sayısını say
+            await cursor.execute('''
+            SELECT COUNT(*) FROM staff_online_sessions WHERE session_start < ?
+            ''', (cutoff_date,))
+            
+            count_to_delete = (await cursor.fetchone())[0]
+            
+            if count_to_delete > 0:
+                # Eski kayıtları sil
+                await cursor.execute('''
+                DELETE FROM staff_online_sessions WHERE session_start < ?
+                ''', (cutoff_date,))
+                
+                await self.connection.commit()
+            
+            return count_to_delete
+
+    async def get_active_staff_sessions_count(self, guild_id: int):
+        """Aktif online session sayısını döndürür."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT COUNT(*) FROM staff_online_sessions 
+            WHERE guild_id = ? AND session_end IS NULL
+            ''', (guild_id,))
+            return (await cursor.fetchone())[0]
+    
+    async def end_all_staff_sessions(self, guild_id: int):
+        """Sunucudaki tüm aktif staff session'larını sonlandırır (bot restart için)."""
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE staff_online_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount
+    
+    async def connect_registration_db(self):
+        """Kayıt istatistikleri veritabanına bağlanır"""
+        if self.registration_connection is None:
+            try:
+                self.registration_connection = await aiosqlite.connect(self.registration_db_path)
+                self.registration_connection.row_factory = aiosqlite.Row
+            except Exception as e:
+                print(f"Kayıt veritabanına bağlanırken hata: {e}")
+                self.registration_connection = None
+        return self.registration_connection
+    
+    async def close_registration_db(self):
+        """Kayıt veritabanı bağlantısını kapatır"""
+        if self.registration_connection:
+            await self.registration_connection.close()
+            self.registration_connection = None
+    
+    async def get_registration_stats(self, start_date, end_date):
+        """Belirtilen tarih aralığındaki kayıt istatistiklerini getirir
+        
+        Args:
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            dict: Kayıt istatistikleri
+        """
+        try:
+            # Kayıt veritabanına bağlan
+            reg_conn = await self.connect_registration_db()
+            
+            if not reg_conn:
+                return {
+                    'total_registrations': 0,
+                    'daily_average': 0,
+                    'error': 'Kayıt veritabanına bağlanılamadı'
+                }
+            
+            start_str = start_date.isoformat()
+            end_str = end_date.isoformat()
+            
+            async with reg_conn.cursor() as cursor:
+                # Toplam kayıt sayısı
+                await cursor.execute('''
+                SELECT COUNT(*) FROM registrations 
+                WHERE registered_at >= ? AND registered_at < ?
+                ''', (start_str, end_str))
+                
+                total_registrations = (await cursor.fetchone())[0]
+                
+                # Günlük ortalama hesapla
+                days_diff = max(1, (end_date - start_date).days)
+                daily_average = round(total_registrations / days_diff, 1)
+                
+                # Saatlik dağılım (en aktif saatler)
+                await cursor.execute('''
+                SELECT strftime('%H', registered_at) as hour, COUNT(*) as count
+                FROM registrations 
+                WHERE registered_at >= ? AND registered_at < ?
+                GROUP BY hour
+                ORDER BY count DESC
+                LIMIT 3
+                ''', (start_str, end_str))
+                
+                top_hours = []
+                for row in await cursor.fetchall():
+                    top_hours.append({
+                        'hour': int(row[0]),
+                        'count': row[1]
+                    })
+                
+                return {
+                    'total_registrations': total_registrations,
+                    'daily_average': daily_average,
+                    'top_hours': top_hours,
+                    'period_days': days_diff
+                }
+                
+        except Exception as e:
+            print(f"Kayıt istatistikleri alınırken hata: {e}")
+            return {
+                'total_registrations': 0,
+                'daily_average': 0,
+                'top_hours': [],
+                'error': str(e)
+            }
 
 
 
