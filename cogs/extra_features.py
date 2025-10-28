@@ -30,6 +30,7 @@ class ExtraFeatures(commands.Cog):
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
         self.KURUCU_ID = 315888596437696522  # Kurucu ID'si
+        self.WELCOME_CHANNEL_ID = 1406431661872124026  # Hoş geldin kanalı ID'si
         
         # İzin verilen yetkili roller
         self.EXEMPT_ROLES = {
@@ -428,10 +429,8 @@ class ExtraFeatures(commands.Cog):
 
         # Link denetimi - Mesajın içinde link var mı kontrol et
         if self.link_pattern.search(message.content):
-            # Hoş geldin kanalı ID'si (varsayılan: yok, değişkenle kontrol ediyoruz)
-            WELCOME_CHANNEL_ID = getattr(self, 'WELCOME_CHANNEL_ID', None)
-            
-            if WELCOME_CHANNEL_ID and message.channel.id == WELCOME_CHANNEL_ID:
+            # Hoş geldin kanalında link kontrolü
+            if message.channel.id == self.WELCOME_CHANNEL_ID:
                 await message.delete()
                 msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1406432595679383572> kanalına atmanız gerekmektedir.')
                 await msg.delete(delay=4)
