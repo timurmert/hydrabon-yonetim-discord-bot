@@ -3402,9 +3402,9 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        # Sunucu-log kanalına bildirim gönder
+        # Yetkili Panel Log kanalına bildirim gönder
         try:
-            log_channel = interaction.client.get_channel(1365956201539571835)
+            log_channel = interaction.client.get_channel(1365954141880455238)
             if log_channel:
                 log_embed = discord.Embed(
                     title="📝 Yeni Kullanıcı Notu Eklendi",
@@ -3423,7 +3423,7 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
                 log_embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
                 await log_channel.send(embed=log_embed)
         except Exception as e:
-            print(f"Sunucu-log kanalına not ekleme bildirimi gönderilemedi: {e}")
+            print(f"Yetkili Panel Log kanalına not ekleme bildirimi gönderilemedi: {e}")
 
 
 class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
@@ -3488,9 +3488,9 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
             
-            # Sunucu-log kanalına bildirim gönder
+            # Yetkili Panel Log kanalına bildirim gönder
             try:
-                log_channel = interaction.client.get_channel(1365956201539571835)
+                log_channel = interaction.client.get_channel(1365954141880455238)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="✏️ Kullanıcı Notu Güncellendi",
@@ -3513,7 +3513,7 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
                     log_embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
                     await log_channel.send(embed=log_embed)
             except Exception as e:
-                print(f"Sunucu-log kanalına not güncelleme bildirimi gönderilemedi: {e}")
+                print(f"Yetkili Panel Log kanalına not güncelleme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not güncellenirken bir hata oluştu!",
@@ -3611,9 +3611,9 @@ class DeleteNoteConfirmView(discord.ui.View):
             
             await interaction.response.edit_message(embed=embed, view=self)
             
-            # Sunucu-log kanalına bildirim gönder
+            # Yetkili Panel Log kanalına bildirim gönder
             try:
-                log_channel = interaction.client.get_channel(1365956201539571835)
+                log_channel = interaction.client.get_channel(1365954141880455238)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="🗑️ Kullanıcı Notu Silindi",
@@ -3637,7 +3637,7 @@ class DeleteNoteConfirmView(discord.ui.View):
                     log_embed.set_footer(text=f"Silen: {interaction.user.name}")
                     await log_channel.send(embed=log_embed)
             except Exception as e:
-                print(f"Sunucu-log kanalına not silme bildirimi gönderilemedi: {e}")
+                print(f"Yetkili Panel Log kanalına not silme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not silinirken bir hata oluştu!",
