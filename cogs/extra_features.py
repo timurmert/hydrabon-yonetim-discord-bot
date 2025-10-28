@@ -40,6 +40,9 @@ class ExtraFeatures(commands.Cog):
         
         self.discord_invite_pattern = re.compile(r'discord(?:\.gg|app\.com\/invite|\.com\/invite)\/([a-zA-Z0-9]+)')
         
+        # Link pattern (http veya https ile başlayan URL'ler)
+        self.link_pattern = re.compile(r'https?://[^\s]+', re.IGNORECASE)
+        
         # Karalisteyi yükle
         self.karaliste = self.load_karaliste()
         
@@ -392,9 +395,12 @@ class ExtraFeatures(commands.Cog):
                 except Exception as e:
                     print(f"Discord davet linki işlemi sırasında hata: {e}")
 
-        # Link denetimi
-        if message.content.startswith('https://') or message.content.startswith('http://'):
-            if message.channel.id == self.WELCOME_CHANNEL_ID:
+        # Link denetimi - Mesajın içinde link var mı kontrol et
+        if self.link_pattern.search(message.content):
+            # Hoş geldin kanalı ID'si (varsayılan: yok, değişkenle kontrol ediyoruz)
+            WELCOME_CHANNEL_ID = getattr(self, 'WELCOME_CHANNEL_ID', None)
+            
+            if WELCOME_CHANNEL_ID and message.channel.id == WELCOME_CHANNEL_ID:
                 await message.delete()
                 msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1406432595679383572> kanalına atmanız gerekmektedir.')
                 await msg.delete(delay=4)
