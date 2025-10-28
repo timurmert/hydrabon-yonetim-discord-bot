@@ -385,7 +385,7 @@ class ExtraFeatures(commands.Cog):
                             except discord.Forbidden:
                                 pass
                             except Exception as e:
-                                print(f"Thread silme hatası: {e}")
+                                print(f"Alt başlık silme hatası: {e}")
                     
                     # Mesajı sil (thread silinmediyse)
                     if not thread_deleted:
@@ -404,14 +404,14 @@ class ExtraFeatures(commands.Cog):
                             timestamp=datetime.datetime.now(self.turkey_tz)
                         )
                         embed.add_field(name="Kullanıcı", value=f"{message.author.mention} ({message.author.id})", inline=False)
-                        embed.add_field(name="Kanal", value=f"{message.channel.mention if not thread_deleted else f'#{message.channel.name} (Thread Silindi)'}", inline=False)
+                        embed.add_field(name="Kanal", value=f"{message.channel.mention if not thread_deleted else f'#{message.channel.name} (Alt başlık Silindi)'}", inline=False)
                         embed.add_field(name="Mesaj İçeriği", value=f"```{message.content[:1000]}```", inline=False)
                         
                         action_text = "Mesaj silindi ve kullanıcıya 7 günlük timeout uygulandı"
                         if thread_deleted:
-                            action_text = "Thread ve mesaj silindi, kullanıcıya 7 günlük timeout uygulandı"
+                            action_text = "Alt başlık ve mesaj silindi, kullanıcıya 7 günlük timeout uygulandı"
                         elif has_invite_in_thread_name:
-                            action_text += " (Thread isminde davet linki tespit edildi)"
+                            action_text += " (Alt başlık isminde davet linki tespit edildi)"
                             
                         embed.add_field(name="İşlem", value=action_text, inline=False)
                         embed.set_footer(text=f"Kullanıcı ID: {message.author.id}")
