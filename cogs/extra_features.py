@@ -359,13 +359,37 @@ class ExtraFeatures(commands.Cog):
         # Spam koruma sistemi
         await self.check_spam_protection(message)
 
-        # Discord davet linki denetimi
-        if self.discord_invite_pattern.search(message.content):
-            is_allowed = await self.check_discord_invite(message.content, message.guild)
+        # Discord davet linki denetimi (mesaj içeriği veya thread ismi)
+        has_invite_in_content = self.discord_invite_pattern.search(message.content)
+        has_invite_in_thread_name = False
+        
+        # Thread isminde davet linki kontrolü
+        if isinstance(message.channel, discord.Thread):
+            has_invite_in_thread_name = self.discord_invite_pattern.search(message.channel.name)
+        
+        if has_invite_in_content or has_invite_in_thread_name:
+            # İçerikteki veya thread ismindeki daveti kontrol et
+            check_text = message.content if has_invite_in_content else message.channel.name
+            is_allowed = await self.check_discord_invite(check_text, message.guild)
+            
             if not is_allowed:
                 try:
-                    # Mesajı sil
-                    await message.delete()
+                    # Thread kontrolü - Eğer mesaj thread'in başlangıç mesajıysa veya thread isminde davet varsa thread'i sil
+                    thread_deleted = False
+                    if isinstance(message.channel, discord.Thread):
+                        # Thread'in başlangıç mesajı mı kontrol et veya thread isminde davet var mı
+                        if message.id == message.channel.id or has_invite_in_thread_name:
+                            try:
+                                await message.channel.delete()
+                                thread_deleted = True
+                            except discord.Forbidden:
+                                pass
+                            except Exception as e:
+                                print(f"Thread silme hatası: {e}")
+                    
+                    # Mesajı sil (thread silinmediyse)
+                    if not thread_deleted:
+                        await message.delete()
                     
                     # 1 haftalık timeout uygula (7 gün = 604800 saniye)
                     timeout_duration = datetime.timedelta(days=7)
@@ -380,9 +404,16 @@ class ExtraFeatures(commands.Cog):
                             timestamp=datetime.datetime.now(self.turkey_tz)
                         )
                         embed.add_field(name="Kullanıcı", value=f"{message.author.mention} ({message.author.id})", inline=False)
-                        embed.add_field(name="Kanal", value=f"{message.channel.mention}", inline=False)
+                        embed.add_field(name="Kanal", value=f"{message.channel.mention if not thread_deleted else f'#{message.channel.name} (Thread Silindi)'}", inline=False)
                         embed.add_field(name="Mesaj İçeriği", value=f"```{message.content[:1000]}```", inline=False)
-                        embed.add_field(name="İşlem", value="Mesaj silindi ve kullanıcıya 7 günlük timeout uygulandı", inline=False)
+                        
+                        action_text = "Mesaj silindi ve kullanıcıya 7 günlük timeout uygulandı"
+                        if thread_deleted:
+                            action_text = "Thread ve mesaj silindi, kullanıcıya 7 günlük timeout uygulandı"
+                        elif has_invite_in_thread_name:
+                            action_text += " (Thread isminde davet linki tespit edildi)"
+                            
+                        embed.add_field(name="İşlem", value=action_text, inline=False)
                         embed.set_footer(text=f"Kullanıcı ID: {message.author.id}")
                         
                         # Fire-and-forget: Krıitik uyarı background'da gönderilir
