@@ -67,7 +67,7 @@ async def on_ready():
         synced = await bot.tree.sync()
         print(f"✅ {len(synced)} global komut senkronize edildi!")
         
-        await bot.change_presence(activity=discord.Streaming(name="Kaplanları", url="https://www.twitch.tv/mrpresidentnotsjanymore"))
+        await bot.change_presence(activity=discord.Streaming(name="HydRaboN", url="https://www.twitch.tv/mrpresidentnotsjanymore"))
         print("🎮 Bot durumu ayarlandı!")
         
         # Tüm sunucularda komutları senkronize et
