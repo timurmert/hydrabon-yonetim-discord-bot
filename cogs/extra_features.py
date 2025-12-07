@@ -1248,6 +1248,51 @@ class ExtraFeatures(commands.Cog):
         else:
             await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 
+    @app_commands.command(name="kilitle", description="Özel odayı kilitler")
+    async def kilitle(self, interaction: discord.Interaction):
+        # Kullanıcı bir ses kanalında mı kontrol et
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
+            
+        voice_channel = interaction.user.voice.channel
+        guild = interaction.guild
+
+        # Kullanıcı kanal sahibi mi kontrol et
+        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
+            # @everyone rolü için "Bağlan" iznini kaldır
+            overwrites = voice_channel.overwrites
+            everyone_role = guild.default_role  # @everyone rolünü elde et
+            overwrites[everyone_role] = discord.PermissionOverwrite(connect=False)
+
+            # Kanal sahibi her zaman bağlanabilir
+            overwrites[interaction.user] = discord.PermissionOverwrite(connect=True)
+            await voice_channel.edit(overwrites=overwrites)
+
+            await interaction.response.send_message("Oda kilitlendi.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
+
+    @app_commands.command(name="kilit-ac", description="Özel odanın kilidini açar")
+    async def kilit_ac(self, interaction: discord.Interaction):
+        # Kullanıcı bir ses kanalında mı kontrol et
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
+            
+        voice_channel = interaction.user.voice.channel
+        guild = interaction.guild
+
+        # Kullanıcı kanal sahibi mi kontrol et
+        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
+            # @everyone rolü için "Bağlan" iznini geri ver
+            overwrites = voice_channel.overwrites
+            everyone_role = guild.default_role  # @everyone rolünü elde et
+            overwrites[everyone_role] = discord.PermissionOverwrite(connect=True)
+
+            await voice_channel.edit(overwrites=overwrites)
+            await interaction.response.send_message("Oda kilidi açıldı.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
+
     @app_commands.command(name="sil", description="Belirtilen sayıda mesajı siler (Sadece yetkili kullanıcılar)")
     @app_commands.describe(miktar="Silinecek mesaj sayısı (1-100 arası)")
     async def sil(self, interaction: discord.Interaction, miktar: int):
