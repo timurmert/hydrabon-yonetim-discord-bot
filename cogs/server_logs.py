@@ -16,6 +16,8 @@ class ServerLogs(commands.Cog):
         self.log_channel = None
         self.target_guild_id = 1029088146752815138  # İzlenmeyecek sunucu ID'si (Davet korumasında HydRaboN hariç tutmak için)
         self.alert_channel_id = 1362825644550914263  # Uyarı gönderilecek kanal ID'si (Yetkili sohbet)
+        # Sunucunun kendi vanity URL'leri (seviye düştüğünde geçersiz olabilir)
+        self.own_vanity_urls = {"hydrabon"}  # Sunucunun vanity URL'lerini buraya ekleyin
         # Log kategorileri (mesaj silme cezaları bu kategorilerde tetiklenir)
         self.log_category_ids = {1217523779471937547, 1281779525658742784}
         # YK sohbet kanal ID'si (uyarı buraya gidecek)
@@ -1439,9 +1441,12 @@ class ServerLogs(commands.Cog):
                     break  # İlk bulduğunda dur (spam önleme)
                     
             except discord.NotFound:
-                # Geçersiz davet linki, ama yine de uyar
-                await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
-                break  # İlk bulduğunda dur
+                # Eğer bu sunucunun kendi vanity URL'iyse uyarma (seviye düşünce geçersiz olabilir)
+                if invite_code.lower() not in self.own_vanity_urls:
+                    # Geçersiz davet linki, ama yine de uyar
+                    await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
+                # Kendi vanity URL'imiz olsa bile döngüyü kır (spam önleme)
+                break
             except discord.HTTPException as e:
                 print(f"Davet linki uyarısı gönderme hatası: {e}")
 
