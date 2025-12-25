@@ -44,6 +44,8 @@ MANAGEMENT_ALLOWED_ROLE_IDS = [
     YETKILI_ROLLERI["KURUCU"],
 ]
 
+YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
+
 def user_has_management_permission(user: discord.Member) -> bool:
     return any(role.id in MANAGEMENT_ALLOWED_ROLE_IDS for role in user.roles)
 
@@ -1081,7 +1083,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         )
         
         # Log kanalına mesaj gönder
-        log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+        log_kanali = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
         if log_kanali:
             log_embed = discord.Embed(
                 title="📢 Yetkili Duyurusu Gönderildi",
@@ -1760,7 +1762,7 @@ class KanalSecimMenu(discord.ui.Select):
             )
             
             # Log kanalına da bildirim gönder
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+            log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="⏱️ Otomatik Mesaj Eklendi",
@@ -1857,7 +1859,7 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="🗑️ Otomatik Mesaj Silindi",
@@ -1934,7 +1936,7 @@ class IcerikDuzenleModal(discord.ui.Modal, title="Mesaj İçeriği Düzenle"):
                 )
                 
                 # Log kanalına bildirim gönder
-                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="✏️ Mesaj İçeriği Güncellendi",
@@ -2068,7 +2070,7 @@ class ZamanDuzenleModal(discord.ui.Modal, title="Zaman Aralığı Düzenle"):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="⏰ Zaman Aralığı Güncellendi",
@@ -2155,7 +2157,7 @@ class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="🔄 Tekrar Sayısı Güncellendi",
@@ -2357,7 +2359,7 @@ class KanalDuzenleMenu(discord.ui.Select):
                 )
                 
                 # Log kanalına bildirim gönder
-                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="📻 Kanal Güncellendi",
@@ -2523,7 +2525,7 @@ class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="✏️ Otomatik Mesaj Güncellendi",
@@ -2874,7 +2876,7 @@ class MesajSilOnayView(discord.ui.View):
             )
             
             # Log kanalına bildirim gönder
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+            log_channel = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="🗑️ Otomatik Mesaj Silindi",
@@ -4258,7 +4260,7 @@ class YetkiliPanel(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Log kanalına bildirim gönder
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🔼 Yetki Yükseltme",
@@ -4407,7 +4409,7 @@ class YetkiliPanel(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Log kanalına bildirim gönder
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🔽 Yetki Düşürme",
@@ -4504,7 +4506,7 @@ class YetkiliPanel(commands.Cog):
             embed.add_field(name="İşlemi Yapan", value=f"{ekleyen.mention} ({ekleyen.id})", inline=False)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🆕 Yetkili Ekleme",
@@ -4574,7 +4576,7 @@ class YetkiliPanel(commands.Cog):
             embed.add_field(name="İşlemi Yapan", value=f"{cikarani.mention} ({cikarani.id})", inline=False)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🗑️ Yetkili Çıkartma",

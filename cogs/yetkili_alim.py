@@ -12,6 +12,7 @@ FORM_QUESTION_COUNT = 5
 
 # Başvuruların gönderileceği kanal ID'si
 BASVURU_CHANNEL_ID = 1365954139607269436
+YETKILI_ALIM_CATEGORY_ID = 1365954135190409226
 
 class YetkiliAlim(commands.Cog):
     def __init__(self, bot):
@@ -131,7 +132,7 @@ class YetkiliAlim(commands.Cog):
         
         # Kullanıcıya özel başvuru kanalı oluşturma
         # Bu kanal yetkili alım kategorisinde ve sadece başvuran kişi görebilecek
-        category = discord.utils.get(interaction.guild.categories, name="YETKİLİ ALIM")
+        category = interaction.guild.get_channel(YETKILI_ALIM_CATEGORY_ID)
         if not category:
             return await interaction.followup.send(
                 "Yetkili Alım kategorisi bulunamadı. Lütfen bir yetkiliyle iletişime geçin.", 

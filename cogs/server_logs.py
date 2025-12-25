@@ -22,6 +22,7 @@ class ServerLogs(commands.Cog):
         self.log_category_ids = {1217523779471937547, 1281779525658742784}
         # YK sohbet kanal ID'si (uyarı buraya gidecek)
         self.yk_sohbet_channel_id = 1362825668965957845
+        self.sunucu_log_channel_id = 1365956201539571835
         
         # Yetkili rol ID'leri
         self.yetkili_rolleri = {
@@ -147,7 +148,7 @@ class ServerLogs(commands.Cog):
             return self.log_channel
             
         # Kanal adına göre log kanalını bul
-        log_channel = discord.utils.get(guild.channels, name="sunucu-log")
+        log_channel = discord.get_channel(self.sunucu_log_channel_id)
         
         # Eğer kanal yoksa, None döndür
         self.log_channel = log_channel
@@ -1303,7 +1304,7 @@ class ServerLogs(commands.Cog):
     async def setup_log_channel(self, interaction):
         """Sunucu için log kanalı oluşturur"""
         # Kanal zaten var mı kontrol et
-        existing_channel = discord.utils.get(interaction.guild.channels, name="sunucu-log")
+        existing_channel = discord.get_channel(self.sunucu_log_channel_id)
         
         if existing_channel:
             await interaction.response.send_message("⚠️ 'sunucu-log' kanalı zaten mevcut!")
