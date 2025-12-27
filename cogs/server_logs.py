@@ -148,7 +148,7 @@ class ServerLogs(commands.Cog):
             return self.log_channel
             
         # Kanal adına göre log kanalını bul
-        log_channel = discord.get_channel(self.sunucu_log_channel_id)
+        log_channel = discord.utils.get(guild.channels, id=self.sunucu_log_channel_id)
         
         # Eğer kanal yoksa, None döndür
         self.log_channel = log_channel
@@ -1301,13 +1301,13 @@ class ServerLogs(commands.Cog):
 
     @commands.hybrid_command(name="logkanal-kur", description="Sunucu için log kanalı oluşturur")
     @commands.has_permissions(administrator=True)
-    async def setup_log_channel(self, interaction):
+    async def setup_log_channel(self, ctx):
         """Sunucu için log kanalı oluşturur"""
         # Kanal zaten var mı kontrol et
-        existing_channel = discord.get_channel(self.sunucu_log_channel_id)
+        existing_channel = discord.utils.get(ctx.guild.channels, id=self.sunucu_log_channel_id)
         
         if existing_channel:
-            await interaction.response.send_message("⚠️ 'sunucu-log' kanalı zaten mevcut!")
+            await ctx.send("⚠️ 'sunucu-log' kanalı zaten mevcut!")
             self.log_channel = existing_channel
             return
         
@@ -1315,17 +1315,17 @@ class ServerLogs(commands.Cog):
         try:
             # Overwrites ile sadece yöneticilerin görebileceği bir kanal oluştur
             overwrites = {
-                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
+                ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
             }
             
             # Yöneticiler için izin ekle
-            for role in interaction.guild.roles:
+            for role in ctx.guild.roles:
                 if role.permissions.administrator:
                     overwrites[role] = discord.PermissionOverwrite(read_messages=True)
             
             # Kanalı oluştur
-            log_channel = await interaction.guild.create_text_channel(
+            log_channel = await ctx.guild.create_text_channel(
                 name="sunucu-log",
                 overwrites=overwrites,
                 topic="HydRaboN Sunucu Log Kanalı - Sunucu içi olaylar burada loglanır",
@@ -1341,7 +1341,7 @@ class ServerLogs(commands.Cog):
                 color=discord.Color.green()
             )
             
-            await interaction.response.send_message(embed=embed)
+            await ctx.send(embed=embed)
             
             # İlk log mesajını gönder
             welcome_embed = discord.Embed(
@@ -1369,9 +1369,9 @@ class ServerLogs(commands.Cog):
             asyncio.create_task(self.safe_send(log_channel, embed=welcome_embed))
             
         except discord.Forbidden:
-            await interaction.response.send_message("❌ Bot'un kanal oluşturma izni yok!")
+            await ctx.send("❌ Bot'un kanal oluşturma izni yok!")
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Kanal oluşturulurken bir hata oluştu: {e}")
+            await ctx.send(f"❌ Kanal oluşturulurken bir hata oluştu: {e}")
 
     @commands.Cog.listener()
     async def on_presence_update(self, before, after):
