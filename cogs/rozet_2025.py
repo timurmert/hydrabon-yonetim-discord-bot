@@ -45,8 +45,7 @@ class Rozet2025View(discord.ui.View):
                     embed=discord.Embed(
                         title="✨ Harika!",
                         description=(
-                            f"🎉 **Zaten 2025 Rozetine sahipsin!**\n\n"
-                            f"Sen zaten bu özel rozetin gurur sahibisin! 🌟\n"
+                            f"🎉 **Zaten HydRaboN 2025 Rozetine sahipsin!**\n\n"
                             f"2025'i birlikte geride bıraktığımız için mutluyuz.\n\n"
                             f"🎊 **2026'da seni bekleyen ayrıcalıklar için hazır ol!**"
                         ),
@@ -66,9 +65,8 @@ class Rozet2025View(discord.ui.View):
                 description=(
                     f"🎁 **2025 Rozeti başarıyla hesabına eklendi!**\n\n"
                     f"🌟 Artık özel {rozet_role.mention} rozeti senin!\n"
-                    f"Bu rozet, 2025 yılını bizimle geçirdiğin için verilen özel bir onur nişanıdır.\n\n"
+                    f"Bu rozet, 2025 yılını bizimle beraber geçirdiğin için verilen özel bir roldür.\n\n"
                     f"✨ **2026'da bu rozetle birlikte seni bekleyen sürprizler olacak!**\n"
-                    f"İlerleyen zamanlarda bu rozete özel ayrıcalıklar kazanabilirsin.\n\n"
                     f"🎉 **Yeni yılın kutlu olsun!** 🎉"
                 ),
                 color=discord.Color.green(),
@@ -145,27 +143,24 @@ class Rozet2025(commands.Cog):
             
             # Ana embed mesajını oluştur
             main_embed = discord.Embed(
-                title="🎊 2025 Yılbaşı Rozeti 🎊",
+                title="🎊 HydRaboN 2025 Rozeti 🎊",
                 description=(
-                    "## 🌟 2025'i Birlikte Geride Bıraktık!\n\n"
+                    "## 🌟 2025 Yılını Birlikte Tamamladık!\n\n"
                     "**HydRaboN** ailesinin değerli üyesi,\n\n"
                     "2025 yılını bizimle geçirdiğin için çok teşekkür ederiz! "
-                    "Bu özel günde, sana **2025 Yılbaşı Rozeti**'ni sunuyoruz. 🎁\n\n"
+                    "Bu özel günde, sana **HydRaboN 2025 Rozeti**'ni sunuyoruz. 🎁\n\n"
                     "### ✨ Bu Rozet Nedir?\n"
-                    f"• {rozet_role.mention} özel bir onur nişanıdır\n"
-                    "• 2025'i bizimle geçiren herkese özel bir hediyedir\n"
-                    "• Profil rozetlerin arasında gururla parlayacak\n\n"
+                    f"• {rozet_role.mention} bir daha alınamayacak özel bir roldür.\n"
+                    "• 2025'i bizimle geçiren herkese özel bir hediyedir.\n\n"
                     "### 🎯 Gelecekte Neler Olabilir?\n"
-                    "Bu rozet sadece bir başlangıç! İlerleyen zamanlarda bu rozete sahip olan kullanıcılar için:\n"
+                    "Bu rozet sadece bir başlangıç! İlerleyen zamanlarda bu rozete sahip olan kullanıcılar için:\n\n"
                     "• Özel etkinliklere erken erişim\n"
                     "• Sunucu içi özel ayrıcalıklar\n"
-                    "• Gelecek rozetlere öncelikli erişim\n"
                     "• Ve daha fazlası gibi sürprizler seni bekliyor!\n\n"
                     "### 🎁 Nasıl Alınır?\n"
                     "Aşağıdaki **🎊 2025 Rozetini Al** butonuna tıklamanız yeterli!\n"
                     "Bot otomatik olarak rolü size verecektir.\n\n"
-                    "---\n"
-                    "**🎉 2026'da görüşmek üzere! Mutlu yıllar! 🎉**"
+                    "**🎉 Mutlu Yıllar! 🎉**"
                 ),
                 color=0xFFD700  # Altın sarısı
             )
