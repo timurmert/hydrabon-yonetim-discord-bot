@@ -72,7 +72,7 @@ class ExtraFeatures(commands.Cog):
         """Karaliste dosyasını yükler"""
         try:
             with open('karaliste.txt', 'r', encoding='ISO-8859-9') as file:
-                return file.read()
+                return [line.strip() for line in file.readlines() if line.strip()]
         except Exception as e:
             print(f"Karaliste yüklenirken hata oluştu: {e}")
             return []
