@@ -686,6 +686,7 @@ class RoleSelectMenu(discord.ui.Select):
             1163918714081644554,  # STAJYER
             1200919832393154680,  # ASİSTAN
             1163918107501412493,  # MODERATÖR
+            1460021463607152703,  # KIDEMLİ MODERATÖR
             1163918130192580608  # ADMİN
         ]
         
