@@ -499,6 +499,16 @@ class WeeklyReports(commands.Cog):
                 except Exception:
                     pass
 
+                # Eski channel_message_stats kayıtlarını temizle (28 gün öncesi)
+                try:
+                    cutoff_date_str = cleanup_cutoff.date().isoformat()
+                    await cursor.execute('''
+                    DELETE FROM channel_message_stats WHERE message_date < ?
+                    ''', (cutoff_date_str,))
+                    print(f"Haftalık rapor - Eski kanal mesaj istatistikleri temizlendi")
+                except Exception as e:
+                    print(f"Kanal mesaj istatistikleri temizliği hatası: {e}")
+
                 # Eski presence snapshot'larını temizle (14 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM presence_snapshots WHERE snapshot_time < ?
@@ -778,6 +788,163 @@ class WeeklyReports(commands.Cog):
             except Exception as e:
                 embed.add_field(
                     name="⚖️ Moderation İşlemleri",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === KANAL İSTATİSTİKLERİ - SOHBET KANALLARI ===
+            try:
+                channel_stats = await db.get_channel_stats_by_period(guild.id, start_date, end_date)
+                
+                # Sohbet kanalları
+                if channel_stats and 'sohbet' in channel_stats:
+                    sohbet = channel_stats['sohbet']
+                    lines = []
+                    
+                    # Genel istatistikler
+                    total_msg = sohbet['total_messages']
+                    active_ch = sohbet['active_channels']
+                    avg_users = sohbet['avg_unique_users_per_day']
+                    
+                    lines.append(f"**📊 Genel Özet**")
+                    lines.append(f"• Toplam Mesaj: **{total_msg:,}**")
+                    lines.append(f"• Aktif Kanal: **{active_ch}**")
+                    lines.append(f"• Günlük Ort. Aktif Kullanıcı: **{avg_users:.1f}**")
+                    
+                    # En aktif kanallar (top 5)
+                    if sohbet['channels']:
+                        lines.append(f"\n**🔥 En Aktif Kanallar**")
+                        for i, ch in enumerate(sohbet['channels'][:5], 1):
+                            ch_name = ch['channel_name']
+                            ch_msg = ch['total_messages']
+                            percentage = (ch_msg / total_msg * 100) if total_msg > 0 else 0
+                            
+                            # Emoji'ler
+                            if i == 1:
+                                emoji = "🥇"
+                            elif i == 2:
+                                emoji = "🥈"
+                            elif i == 3:
+                                emoji = "🥉"
+                            else:
+                                emoji = "▪️"
+                            
+                            lines.append(f"{emoji} #{ch_name}: **{ch_msg:,}** mesaj ({percentage:.1f}%)")
+                    
+                    # Günlük dağılım (grafiksel)
+                    if sohbet.get('daily_breakdown'):
+                        lines.append(f"\n**📅 Günlük Dağılım**")
+                        
+                        # Türkçe gün isimleri
+                        daily_data = sohbet['daily_breakdown']
+                        max_daily = max([d['message_count'] for d in daily_data]) if daily_data else 1
+                        
+                        for day_data in daily_data:
+                            date_obj = datetime.datetime.strptime(day_data['date'], '%Y-%m-%d')
+                            date_turkey = date_obj.replace(tzinfo=pytz.UTC).astimezone(self.turkey_tz)
+                            day_name = date_turkey.strftime('%d.%m (%a)')
+                            
+                            msg_count = day_data['message_count']
+                            bar_length = int((msg_count / max_daily) * 10) if max_daily > 0 else 0
+                            bar = "█" * bar_length + "░" * (10 - bar_length)
+                            
+                            lines.append(f"`{day_name}` {bar} **{msg_count:,}**")
+                    
+                    embed.add_field(
+                        name="💬 Sohbet Kanalları",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    # Sohbet kanallarında veri yok
+                    embed.add_field(
+                        name="💬 Sohbet Kanalları",
+                        value="Bu hafta sohbet kanallarında aktivite tespit edilmedi.",
+                        inline=False
+                    )
+                    
+            except Exception as e:
+                print(f"Sohbet kanalı istatistikleri eklenirken hata: {e}")
+                embed.add_field(
+                    name="💬 Sohbet Kanalları",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === KANAL İSTATİSTİKLERİ - EĞLENCE KANALLARI ===
+            try:
+                channel_stats = await db.get_channel_stats_by_period(guild.id, start_date, end_date)
+                
+                # Eğlence kanalları
+                if channel_stats and 'eglence' in channel_stats:
+                    eglence = channel_stats['eglence']
+                    lines = []
+                    
+                    # Genel istatistikler
+                    total_msg = eglence['total_messages']
+                    active_ch = eglence['active_channels']
+                    avg_users = eglence['avg_unique_users_per_day']
+                    
+                    lines.append(f"**📊 Genel Özet**")
+                    lines.append(f"• Toplam Mesaj: **{total_msg:,}**")
+                    lines.append(f"• Aktif Kanal: **{active_ch}**")
+                    lines.append(f"• Günlük Ort. Aktif Kullanıcı: **{avg_users:.1f}**")
+                    
+                    # En aktif kanallar (top 5)
+                    if eglence['channels']:
+                        lines.append(f"\n**🔥 En Aktif Kanallar**")
+                        for i, ch in enumerate(eglence['channels'][:5], 1):
+                            ch_name = ch['channel_name']
+                            ch_msg = ch['total_messages']
+                            percentage = (ch_msg / total_msg * 100) if total_msg > 0 else 0
+                            
+                            # Emoji'ler
+                            if i == 1:
+                                emoji = "🥇"
+                            elif i == 2:
+                                emoji = "🥈"
+                            elif i == 3:
+                                emoji = "🥉"
+                            else:
+                                emoji = "▪️"
+                            
+                            lines.append(f"{emoji} #{ch_name}: **{ch_msg:,}** mesaj ({percentage:.1f}%)")
+                    
+                    # Günlük dağılım (grafiksel)
+                    if eglence.get('daily_breakdown'):
+                        lines.append(f"\n**📅 Günlük Dağılım**")
+                        
+                        daily_data = eglence['daily_breakdown']
+                        max_daily = max([d['message_count'] for d in daily_data]) if daily_data else 1
+                        
+                        for day_data in daily_data:
+                            date_obj = datetime.datetime.strptime(day_data['date'], '%Y-%m-%d')
+                            date_turkey = date_obj.replace(tzinfo=pytz.UTC).astimezone(self.turkey_tz)
+                            day_name = date_turkey.strftime('%d.%m (%a)')
+                            
+                            msg_count = day_data['message_count']
+                            bar_length = int((msg_count / max_daily) * 10) if max_daily > 0 else 0
+                            bar = "█" * bar_length + "░" * (10 - bar_length)
+                            
+                            lines.append(f"`{day_name}` {bar} **{msg_count:,}**")
+                    
+                    embed.add_field(
+                        name="🎮 Eğlence Kanalları",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    # Eğlence kanallarında veri yok
+                    embed.add_field(
+                        name="🎮 Eğlence Kanalları",
+                        value="Bu hafta eğlence kanallarında aktivite tespit edilmedi.",
+                        inline=False
+                    )
+                    
+            except Exception as e:
+                print(f"Eğlence kanalı istatistikleri eklenirken hata: {e}")
+                embed.add_field(
+                    name="🎮 Eğlence Kanalları",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )

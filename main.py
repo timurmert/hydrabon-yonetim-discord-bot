@@ -94,6 +94,84 @@ async def on_close():
     print("✅ Veritabanı bağlantısı kapatıldı!")
     print("👋 Bot başarıyla kapatıldı!")
 
+# Mesaj istatistikleri için kullanıcı takibi (günlük bazda)
+# Her kanal için o günde mesaj gönderen kullanıcıları takip eder
+daily_channel_users = {}
+
+@bot.event
+async def on_message(message):
+    """Her mesaj gönderildiğinde çalışır - kanal istatistiklerini günceller"""
+    # Bot'un kendi mesajlarını ve DM'leri yoksay
+    if message.author.bot or not message.guild:
+        return
+    
+    # Sadece belirlediğimiz kategorilerdeki kanalları takip et
+    SOHBET_CATEGORY_ID = 1029089768287510588
+    EGLENCE_CATEGORY_ID = 1036080439942713365
+    
+    # Mesajın hangi kategoride olduğunu kontrol et
+    if message.channel.category_id == SOHBET_CATEGORY_ID:
+        category_type = 'sohbet'
+    elif message.channel.category_id == EGLENCE_CATEGORY_ID:
+        category_type = 'eglence'
+    else:
+        # Bu kategorilerde değilse istatistik tutma
+        return
+    
+    try:
+        db = await get_db()
+        
+        # Mesaj tarihini UTC olarak al (veritabanında UTC olarak saklıyoruz)
+        message_date_utc = message.created_at.date().isoformat()
+        
+        # Günlük unique kullanıcı takibi için cache key
+        cache_key = f"{message.guild.id}_{message.channel.id}_{message_date_utc}"
+        
+        # Bu kullanıcı bugün bu kanalda ilk defa mı mesaj gönderiyor?
+        if cache_key not in daily_channel_users:
+            daily_channel_users[cache_key] = set()
+        
+        is_first_message_today = message.author.id not in daily_channel_users[cache_key]
+        
+        if is_first_message_today:
+            daily_channel_users[cache_key].add(message.author.id)
+        
+        # Mesajı veritabanına kaydet
+        await db.record_channel_message(
+            guild_id=message.guild.id,
+            channel_id=message.channel.id,
+            channel_name=message.channel.name,
+            category_type=category_type,
+            user_id=message.author.id,
+            message_date=message_date_utc
+        )
+        
+        # Eğer kullanıcı bugün ilk defa mesaj gönderiyorsa unique sayısını artır
+        if is_first_message_today:
+            await db.increment_channel_unique_users(
+                guild_id=message.guild.id,
+                channel_id=message.channel.id,
+                message_date=message_date_utc
+            )
+        
+        # Her gece yarısı geçince cache'i temizle (memory sızıntısı önlemek için)
+        # Eski günlerin verilerini sil
+        keys_to_remove = []
+        for key in daily_channel_users.keys():
+            # Key formatı: guild_id_channel_id_date
+            key_date = key.split('_')[-1]
+            if key_date != message_date_utc:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del daily_channel_users[key]
+        
+    except Exception as e:
+        print(f"Kanal mesaj istatistiği kayıt hatası: {e}")
+    
+    # Komutları işlemeye devam et
+    await bot.process_commands(message)
+
 # Yönetici gruplandırması oluşturma
 admin_group = app_commands.Group(name="admin", description="Yönetici komutları", 
                                default_permissions=discord.Permissions(administrator=True))

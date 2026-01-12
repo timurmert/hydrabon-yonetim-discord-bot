@@ -334,6 +334,36 @@ class Database:
             ON private_room_logs(channel_id)
             ''')
             
+            # Kanal mesaj istatistikleri tablosu (günlük toplu)
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS channel_message_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                category_type TEXT NOT NULL, -- 'sohbet' veya 'eglence'
+                message_date TEXT NOT NULL, -- ISO YYYY-MM-DD (UTC)
+                message_count INTEGER NOT NULL DEFAULT 0,
+                unique_users INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Kanal mesaj istatistikleri için indeksler
+            await cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_msg_unique
+            ON channel_message_stats(guild_id, channel_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_channel_msg_guild_date
+            ON channel_message_stats(guild_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_channel_msg_category
+            ON channel_message_stats(guild_id, category_type, message_date)
+            ''')
+            
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
             
@@ -1948,7 +1978,175 @@ class Database:
                 'top_hours': [],
                 'error': str(e)
             }
-
+    
+    async def record_channel_message(self, guild_id, channel_id, channel_name, category_type, user_id, message_date):
+        """Bir mesajı kanal istatistiklerine kaydeder (günlük toplu)
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            channel_id (int): Kanal ID'si
+            channel_name (str): Kanal adı
+            category_type (str): Kategori tipi ('sohbet' veya 'eglence')
+            user_id (int): Mesajı gönderen kullanıcı ID'si
+            message_date (str): Mesaj tarihi (YYYY-MM-DD format, UTC)
+        """
+        try:
+            async with self.connection.cursor() as cursor:
+                # Önce bugün bu kanal için kayıt var mı kontrol et
+                await cursor.execute('''
+                SELECT id, unique_users FROM channel_message_stats
+                WHERE guild_id = ? AND channel_id = ? AND message_date = ?
+                ''', (guild_id, channel_id, message_date))
+                
+                existing = await cursor.fetchone()
+                
+                if existing:
+                    # Var olan kaydı güncelle
+                    record_id = existing[0]
+                    
+                    # Mesaj sayısını artır
+                    await cursor.execute('''
+                    UPDATE channel_message_stats
+                    SET message_count = message_count + 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    ''', (record_id,))
+                    
+                    # Unique kullanıcıyı kontrol et ve gerekirse artır
+                    # Not: Bu basit bir yaklaşım, tam doğruluk için ayrı bir tablo kullanılabilir
+                    # Ancak performans için günlük unique user sayısını manuel takip ediyoruz
+                    
+                else:
+                    # Yeni kayıt oluştur
+                    await cursor.execute('''
+                    INSERT INTO channel_message_stats 
+                    (guild_id, channel_id, channel_name, category_type, message_date, message_count, unique_users)
+                    VALUES (?, ?, ?, ?, ?, 1, 1)
+                    ''', (guild_id, channel_id, channel_name, category_type, message_date))
+                
+                await self.connection.commit()
+                
+        except Exception as e:
+            print(f"Kanal mesaj kaydı hatası: {e}")
+    
+    async def increment_channel_unique_users(self, guild_id, channel_id, message_date):
+        """Bir kanalın o günkü unique kullanıcı sayısını artırır
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            channel_id (int): Kanal ID'si
+            message_date (str): Mesaj tarihi (YYYY-MM-DD format, UTC)
+        """
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                UPDATE channel_message_stats
+                SET unique_users = unique_users + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE guild_id = ? AND channel_id = ? AND message_date = ?
+                ''', (guild_id, channel_id, message_date))
+                
+                await self.connection.commit()
+                
+        except Exception as e:
+            print(f"Unique kullanıcı sayısı güncelleme hatası: {e}")
+    
+    async def get_channel_stats_by_period(self, guild_id, start_date, end_date):
+        """Belirtilen tarih aralığındaki kanal istatistiklerini getirir
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi (UTC)
+            end_date (datetime): Bitiş tarihi (UTC)
+            
+        Returns:
+            dict: Kategori bazında kanal istatistikleri
+        """
+        try:
+            start_date_str = start_date.date().isoformat()
+            end_date_str = end_date.date().isoformat()
+            
+            async with self.connection.cursor() as cursor:
+                # Kategori bazında toplam istatistikler
+                await cursor.execute('''
+                SELECT 
+                    category_type,
+                    SUM(message_count) as total_messages,
+                    COUNT(DISTINCT channel_id) as active_channels,
+                    AVG(unique_users) as avg_unique_users
+                FROM channel_message_stats
+                WHERE guild_id = ? 
+                    AND message_date >= ? 
+                    AND message_date < ?
+                GROUP BY category_type
+                ''', (guild_id, start_date_str, end_date_str))
+                
+                category_stats = {}
+                for row in await cursor.fetchall():
+                    category_type = row[0]
+                    category_stats[category_type] = {
+                        'total_messages': row[1] or 0,
+                        'active_channels': row[2] or 0,
+                        'avg_unique_users_per_day': round(row[3] or 0, 1)
+                    }
+                
+                # Her kategori için kanal bazında detaylı istatistikler
+                for category_type in category_stats.keys():
+                    # En aktif kanallar
+                    await cursor.execute('''
+                    SELECT 
+                        channel_id,
+                        channel_name,
+                        SUM(message_count) as total_messages,
+                        AVG(unique_users) as avg_unique_users
+                    FROM channel_message_stats
+                    WHERE guild_id = ? 
+                        AND category_type = ?
+                        AND message_date >= ? 
+                        AND message_date < ?
+                    GROUP BY channel_id, channel_name
+                    ORDER BY total_messages DESC
+                    ''', (guild_id, category_type, start_date_str, end_date_str))
+                    
+                    channels = []
+                    for row in await cursor.fetchall():
+                        channels.append({
+                            'channel_id': row[0],
+                            'channel_name': row[1],
+                            'total_messages': row[2],
+                            'avg_unique_users_per_day': round(row[3] or 0, 1)
+                        })
+                    
+                    category_stats[category_type]['channels'] = channels
+                    
+                    # Günlük dağılım (haftalık için 7 gün)
+                    await cursor.execute('''
+                    SELECT 
+                        message_date,
+                        SUM(message_count) as daily_total
+                    FROM channel_message_stats
+                    WHERE guild_id = ? 
+                        AND category_type = ?
+                        AND message_date >= ? 
+                        AND message_date < ?
+                    GROUP BY message_date
+                    ORDER BY message_date
+                    ''', (guild_id, category_type, start_date_str, end_date_str))
+                    
+                    daily_breakdown = []
+                    for row in await cursor.fetchall():
+                        daily_breakdown.append({
+                            'date': row[0],
+                            'message_count': row[1]
+                        })
+                    
+                    category_stats[category_type]['daily_breakdown'] = daily_breakdown
+                
+                return category_stats
+                
+        except Exception as e:
+            print(f"Kanal istatistikleri alınırken hata: {e}")
+            return {}
 
 
 
