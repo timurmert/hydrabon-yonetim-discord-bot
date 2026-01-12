@@ -287,7 +287,7 @@ async def setup_staff_application(interaction: discord.Interaction):
     
     # Embed'e görsel ekleme
     if guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
+        embed.set_thumbnail(url="https://media.discordapp.net/attachments/1362825668965957845/1459650495890329833/a2.png?ex=69660735&is=6964b5b5&hm=545b00d87a1f3fdf85ed1e3110cbdbf887285b295473025d47ae5cd52162a6c7&=&format=webp&quality=lossless")
         
     # Zaman damgası ve footer ekleme
     embed.set_footer(text=f"{guild.name} • Yetkili Alım Sistemi", icon_url=guild.icon.url if guild.icon else None)
