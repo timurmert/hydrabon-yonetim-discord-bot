@@ -295,7 +295,7 @@ async def setup_staff_application(interaction: discord.Interaction):
         await interaction.response.send_message(f"`{category_name}` kategorisi oluşturuldu.", ephemeral=True)
     
     # Yetkili alım kanalı oluşturma
-    application_channel_name = "yetkili-alım"
+    application_channel_name = "🛡️┃yetkili-alım"
     existing_channel = discord.utils.get(guild.text_channels, name=application_channel_name)
     
     if existing_channel:
@@ -306,7 +306,7 @@ async def setup_staff_application(interaction: discord.Interaction):
         await interaction.followup.send(f"`{application_channel_name}` kanalı oluşturuldu.", ephemeral=True)
     
     # Başvurular kanalı oluşturma (sadece yöneticilerin görebileceği)
-    submissions_channel_name = "başvurular"
+    submissions_channel_name = "🛡️┃başvurular"
     existing_submissions = discord.utils.get(guild.text_channels, name=submissions_channel_name)
     
     if existing_submissions:
