@@ -303,6 +303,37 @@ class Database:
             ON staff_message_stats(guild_id, message_date)
             ''')
             
+            # Özel oda oluşturma logları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS private_room_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP,
+                duration_minutes INTEGER
+            )
+            ''')
+            
+            # Private room logs için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_guild_time
+            ON private_room_logs(guild_id, created_at)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_user
+            ON private_room_logs(user_id, guild_id)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_channel
+            ON private_room_logs(channel_id)
+            ''')
+            
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
             
@@ -1750,6 +1781,103 @@ class Database:
         if self.registration_connection:
             await self.registration_connection.close()
             self.registration_connection = None
+    
+    async def add_private_room_log(self, guild_id, user_id, username, channel_id, channel_name):
+        """Özel oda oluşturma kaydını veritabanına ekler
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            username (str): Kullanıcının adı
+            channel_id (int): Oluşturulan kanalın ID'si
+            channel_name (str): Oluşturulan kanalın adı
+            
+        Returns:
+            int: Log kaydının ID'si
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO private_room_logs (guild_id, user_id, username, channel_id, channel_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, channel_id, channel_name, current_time))
+            
+            await self.connection.commit()
+            return cursor.lastrowid
+    
+    async def update_private_room_deleted(self, channel_id):
+        """Özel odanın silinme zamanını ve süresini günceller
+        
+        Args:
+            channel_id (int): Silinen kanalın ID'si
+            
+        Returns:
+            bool: Güncelleme başarılı ise True, değilse False
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            # Kanal bilgisini bul ve deleted_at'ı güncelle, süreyi hesapla
+            await cursor.execute('''
+            UPDATE private_room_logs 
+            SET deleted_at = ?,
+                duration_minutes = CAST((julianday(?) - julianday(created_at)) * 24 * 60 AS INTEGER)
+            WHERE channel_id = ? AND deleted_at IS NULL
+            ''', (current_time, current_time, channel_id))
+            
+            affected_rows = cursor.rowcount
+            await self.connection.commit()
+            return affected_rows > 0
+    
+    async def get_private_room_stats(self, guild_id, start_date, end_date):
+        """Belirtilen tarih aralığındaki özel oda istatistiklerini getirir
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            dict: Özel oda istatistikleri
+        """
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            # Toplam özel oda sayısı
+            await cursor.execute('''
+            SELECT COUNT(*) FROM private_room_logs 
+            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
+            ''', (guild_id, start_str, end_str))
+            
+            total_rooms = (await cursor.fetchone())[0]
+            
+            # Toplam süre (dakika cinsinden)
+            # Hala açık olan odalar için şu anki zamanı kullan
+            await cursor.execute('''
+            SELECT SUM(
+                CASE 
+                    WHEN deleted_at IS NOT NULL THEN duration_minutes
+                    ELSE CAST((julianday(?) - julianday(created_at)) * 24 * 60 AS INTEGER)
+                END
+            )
+            FROM private_room_logs 
+            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
+            ''', (end_str, guild_id, start_str, end_str))
+            
+            total_minutes = (await cursor.fetchone())[0] or 0
+            total_hours = round(total_minutes / 60, 1) if total_minutes > 0 else 0
+            
+            # Ortalama süre hesapla
+            avg_minutes = round(total_minutes / total_rooms, 1) if total_rooms > 0 else 0
+            
+            return {
+                'total_rooms': total_rooms,
+                'total_minutes': total_minutes,
+                'total_hours': total_hours,
+                'average_minutes': avg_minutes
+            }
     
     async def get_registration_stats(self, start_date, end_date):
         """Belirtilen tarih aralığındaki kayıt istatistiklerini getirir

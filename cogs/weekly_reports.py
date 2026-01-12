@@ -510,6 +510,11 @@ class WeeklyReports(commands.Cog):
                 if deleted_sessions > 0:
                     print(f"Haftalık rapor - {deleted_sessions} eski online session silindi")
                 
+                # Eski özel oda loglarını temizle (28 gün öncesi)
+                await cursor.execute('''
+                DELETE FROM private_room_logs WHERE created_at < ?
+                ''', (cleanup_cutoff.isoformat(),))
+                
                 await db.connection.commit()
                 
                                     # Cleanup completed
@@ -590,6 +595,37 @@ class WeeklyReports(commands.Cog):
             except Exception as e:
                 # Hata durumunda sessiz geç (rapor bozulmasın)
                 print(f"Kayıt istatistikleri eklenirken hata: {e}")
+            
+            # === ÖZEL ODA İSTATİSTİKLERİ ===
+            try:
+                private_room_stats = await db.get_private_room_stats(guild.id, start_date, end_date)
+                
+                if private_room_stats['total_rooms'] > 0:
+                    daily_avg = private_room_stats['total_rooms'] / 7
+                    
+                    # Toplam süreyi saat ve dakika olarak formatla
+                    total_hours = int(private_room_stats['total_hours'])
+                    total_minutes = int(private_room_stats['total_minutes'] % 60)
+                    avg_minutes = private_room_stats['average_minutes']
+                    
+                    value_text = f"**Toplam Açılan Oda:** {private_room_stats['total_rooms']}\n"
+                    value_text += f"**Günlük Ortalama:** {daily_avg:.1f} oda\n"
+                    value_text += f"**Toplam Aktif Süre:** {total_hours}s {total_minutes}dk\n"
+                    value_text += f"**Oda Başına Ortalama:** {avg_minutes:.0f} dk"
+                    
+                    embed.add_field(
+                        name="🎙️ Özel Oda Sistemi",
+                        value=value_text,
+                        inline=True
+                    )
+                else:
+                    embed.add_field(
+                        name="🎙️ Özel Oda Sistemi",
+                        value="Bu hafta özel oda açılmadı.",
+                        inline=True
+                    )
+            except Exception as e:
+                print(f"Özel oda istatistikleri eklenirken hata: {e}")
             
             # === BUMP İSTATİSTİKLERİ ===
             # Bump verilerini al (son 7 gün)

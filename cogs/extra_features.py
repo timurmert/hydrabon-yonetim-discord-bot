@@ -1137,6 +1137,19 @@ class ExtraFeatures(commands.Cog):
                 # Kullanıcıyı yeni kanala taşı
                 await member.move_to(new_channel)
                 
+                # Özel oda oluşturma kaydını veritabanına ekle
+                try:
+                    db = await get_db()
+                    await db.add_private_room_log(
+                        guild_id=guild.id,
+                        user_id=member.id,
+                        username=str(member),
+                        channel_id=new_channel.id,
+                        channel_name=new_channel.name
+                    )
+                except Exception as e:
+                    print(f"Özel oda log kaydedilirken hata: {e}")
+                
             except discord.HTTPException as e:
                 print(f"Kanal oluşturulurken hata: {e}")
         
@@ -1145,11 +1158,20 @@ class ExtraFeatures(commands.Cog):
             # Kanalda kimse kalmadıysa ve bot'un oluşturduğu bir kanalsa sil
             if len(before.channel.members) == 0:
                 try:
+                    channel_id = before.channel.id
                     await before.channel.delete()
+                    
+                    # Özel oda silinme zamanını veritabanına kaydet
+                    try:
+                        db = await get_db()
+                        await db.update_private_room_deleted(channel_id)
+                    except Exception as e:
+                        print(f"Özel oda silinme zamanı güncellenirken hata: {e}")
+                    
                     # Listelerden kaldır
-                    self.created_channels.remove(before.channel.id)
-                    if before.channel.id in self.channel_owners:
-                        del self.channel_owners[before.channel.id]
+                    self.created_channels.remove(channel_id)
+                    if channel_id in self.channel_owners:
+                        del self.channel_owners[channel_id]
                 except discord.HTTPException as e:
                     print(f"Kanal silinirken hata: {e}")
 
