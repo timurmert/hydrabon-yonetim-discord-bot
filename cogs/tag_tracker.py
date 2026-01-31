@@ -27,16 +27,16 @@ class TagTracker(commands.Cog):
     TAG_ROLE_ID = 1467145841830789367  # Tag rolü ID'si
     TARGET_TAG = "HRN"  # Hedef clan tag'i
 
-    # Online üyeler: her 10 saniyede bir kontrol
-    HOT_INTERVAL = 10  # saniye
-    HOT_COOLDOWN = 10  # bir kullanıcı en fazla 10 sn'de 1 kontrol
+    # Online üyeler: her 5 saniyede bir kontrol
+    HOT_INTERVAL = 5  # saniye
+    HOT_COOLDOWN = 5  # bir kullanıcı en fazla 5 sn'de 1 kontrol
 
-    # Offline üyeler: tüm offline seti ~30 dakikada bir tamamlanacak şekilde round-robin
-    OFFLINE_FULL_SCAN_SECONDS = 30 * 60  # 30 dakika
-    OFFLINE_TICK = 30  # her 30 sn'de bir offline batch işle
+    # Offline üyeler: tüm offline seti ~15 dakikada bir tamamlanacak şekilde round-robin
+    OFFLINE_FULL_SCAN_SECONDS = 15 * 60  # 15 dakika
+    OFFLINE_TICK = 15  # her 15 sn'de bir offline batch işle
 
-    # HTTP istekleri için düşük concurrency (rate-limit'e saygılı)
-    WORKERS = 3
+    # HTTP istekleri için concurrency (rate-limit retry_after var)
+    WORKERS = 5
 
     API_VERSION = "10"
     BASE = f"https://discord.com/api/v{API_VERSION}"
