@@ -1071,12 +1071,18 @@ class WeeklyReports(commands.Cog):
             # === SUNUCU BİLGİLERİ ===
             online_members = len([m for m in guild.members if m.status != discord.Status.offline])
             
+            # Tag sahiplerini say (HRN tag rolü)
+            TAG_ROLE_ID = 1467145841830789367
+            tag_role = guild.get_role(TAG_ROLE_ID)
+            tag_count = len(tag_role.members) if tag_role else 0
+            
             embed.add_field(
                 name="ℹ️ Genel Bilgiler",
                 value=f"**Online Üye:** {online_members}/{guild.member_count}\n"
                       f"**Metin Kanalı:** {len(guild.text_channels)}\n"
                       f"**Ses Kanalı:** {len(guild.voice_channels)}\n"
-                      f"**Rol Sayısı:** {len(guild.roles)}",
+                      f"**Rol Sayısı:** {len(guild.roles)}\n"
+                      f"**Tag Sahipleri:** {tag_count} kişi",
                 inline=True
             )
 

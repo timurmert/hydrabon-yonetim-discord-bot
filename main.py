@@ -256,7 +256,8 @@ async def load_extensions():
         'cogs.bump_tracker',   # Bump takip sistemi
         'cogs.weekly_reports', # Haftalık rapor sistemi
         'cogs.system_monitor', # Sistem izleme ve uyarı modülü
-        'cogs.rozet_2025'      # 2025 Yılbaşı Rozet sistemi
+        'cogs.rozet_2025',     # 2025 Yılbaşı Rozet sistemi
+        'cogs.tag_tracker'     # Clan tag takip sistemi
     ]
     
     successful_loads = 0
