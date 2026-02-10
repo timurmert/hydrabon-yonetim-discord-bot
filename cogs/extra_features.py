@@ -190,9 +190,106 @@ class ExtraFeatures(commands.Cog):
                     action='leave',
                     account_created=member.created_at
                 )
+                
+                # Yetkili rolü kontrolü - ayrılan üye yetkili miydi?
+                await self.check_staff_leave(member, db)
                     
         except Exception as e:
             print(f"Member remove işlemi hatası: {e}")
+
+    async def check_staff_leave(self, member, db):
+        """Yetkili rolüne sahip bir üye sunucudan ayrıldığında otomatik not ekler ve log atar"""
+        try:
+            YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
+            
+            # Üyenin sahip olduğu yetkili rollerini tespit et
+            sahip_roller = []
+            for rol_adi, rol_id in YETKILI_ROLLERI.items():
+                if any(r.id == rol_id for r in member.roles):
+                    sahip_roller.append(rol_adi)
+            
+            # Yetkili rolü yoksa işlem yapma
+            if not sahip_roller:
+                return
+            
+            # Roller listesini formatla
+            roller_str = ", ".join(sahip_roller)
+            en_yuksek_rol = sahip_roller[-1] if sahip_roller else sahip_roller[0]
+            
+            # Zaman bilgisi
+            turkey_tz = pytz.timezone('Europe/Istanbul')
+            simdi = datetime.datetime.now(turkey_tz)
+            tarih_str = simdi.strftime("%d.%m.%Y %H:%M")
+            
+            # Katılma tarihi bilgisi
+            katilma_bilgisi = ""
+            if member.joined_at:
+                katilma_gun = (simdi - member.joined_at.astimezone(turkey_tz)).days
+                katilma_bilgisi = f" | Sunucuda {katilma_gun} gün bulundu"
+            
+            # Otomatik kullanıcı notu ekle
+            not_icerigi = (
+                f"⚠️ Bu kullanıcı yetkili ({roller_str}) iken sunucudan ayrıldı. "
+                f"[{tarih_str}]{katilma_bilgisi}"
+            )
+            
+            note_id = await db.add_user_note(
+                user_id=member.id,
+                username=member.name,
+                discriminator=member.discriminator or "0",
+                note_content=not_icerigi,
+                created_by=self.bot.user.id,
+                created_by_username="Sistem (Otomatik)",
+                guild_id=member.guild.id
+            )
+            
+            # Yetkili panel log kanalına bildirim gönder
+            log_channel = self.bot.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                embed = discord.Embed(
+                    title="⚠️ Yetkili Ayrılış Tespiti",
+                    description=(
+                        f"Yetkili rolüne sahip bir kullanıcı sunucudan ayrıldı. "
+                        f"Kullanıcıya otomatik not eklendi."
+                    ),
+                    color=discord.Color.dark_orange(),
+                    timestamp=simdi
+                )
+                embed.add_field(
+                    name="👤 Kullanıcı",
+                    value=f"**{member.name}** ({member.mention})\n`ID: {member.id}`",
+                    inline=True
+                )
+                embed.add_field(
+                    name="🛡️ Yetkili Rolleri",
+                    value=roller_str,
+                    inline=True
+                )
+                if member.joined_at:
+                    embed.add_field(
+                        name="📅 Katılma Tarihi",
+                        value=f"{discord.utils.format_dt(member.joined_at, style='R')} ({katilma_gun} gün)",
+                        inline=True
+                    )
+                embed.add_field(
+                    name="📝 Eklenen Not",
+                    value=f"```{not_icerigi}```",
+                    inline=False
+                )
+                embed.add_field(
+                    name="🔖 Not ID",
+                    value=f"`#{note_id}`",
+                    inline=True
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text=f"Kullanıcı ID: {member.id} • Otomatik Not Sistemi")
+                
+                await log_channel.send(embed=embed)
+            
+            print(f"[Yetkili Ayrılış] {member.name} ({member.id}) - Roller: {roller_str} - Not #{note_id} eklendi")
+            
+        except Exception as e:
+            print(f"Yetkili ayrılış kontrolü hatası: {e}")
     
     async def check_user_notes_on_join(self, member):
         """Yeni katılan üye için not kontrolü yapar ve uyarı gönderir"""
