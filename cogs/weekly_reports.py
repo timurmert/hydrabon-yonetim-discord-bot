@@ -520,6 +520,11 @@ class WeeklyReports(commands.Cog):
                 if deleted_sessions > 0:
                     print(f"Haftalık rapor - {deleted_sessions} eski online session silindi")
                 
+                # Eski voice activity session'larını temizle (2 hafta öncesi)
+                deleted_voice_sessions = await db.cleanup_old_voice_sessions(14)
+                if deleted_voice_sessions > 0:
+                    print(f"Haftalık rapor - {deleted_voice_sessions} eski voice session silindi")
+                
                 # Eski özel oda loglarını temizle (28 gün öncesi)
                 await cursor.execute('''
                 DELETE FROM private_room_logs WHERE created_at < ?
@@ -979,6 +984,9 @@ class WeeklyReports(commands.Cog):
                 # Yetkili çevrim içi saatleri verilerini al
                 staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
                 
+                # Ses kanalı aktivite verilerini al
+                voice_activity_stats = await db.get_voice_activity_stats(guild.id, start_date, end_date)
+                
                 # Bump istatistiklerini al (haftalık için özel sorgu)
                 # start_date ve end_date arasındaki bump verilerini al
                 bump_user_stats = {}
@@ -1008,6 +1016,9 @@ class WeeklyReports(commands.Cog):
                 # Online saatleri dictionary'ye çevir
                 online_stats_dict = {stat['user_id']: stat for stat in staff_online_stats}
                 
+                # Ses kanalı saatlerini dictionary'ye çevir
+                voice_stats_dict = {stat['user_id']: stat for stat in voice_activity_stats}
+                
                 # Tüm yetkililer için results listesi oluştur
                 results = []
                 
@@ -1027,18 +1038,24 @@ class WeeklyReports(commands.Cog):
                         'daily_average': 0
                     })
                     
+                    # Ses kanalı saatlerini al (yoksa 0)
+                    voice_data = voice_stats_dict.get(member.id, {
+                        'total_hours': 0,
+                        'total_minutes': 0
+                    })
+                    
                     # Bump sayısını al (yoksa 0)
                     bump_count = bump_user_stats.get(member.id, 0)
                     
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count))
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours']))
                 
-                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra bump sayısına göre)
-                results.sort(key=lambda x: (x[1], x[2], x[4]), reverse=True)
+                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra ses saatlerine göre, sonra bump sayısına göre)
+                results.sort(key=lambda x: (x[1], x[2], x[5], x[4]), reverse=True)
                 
                 if results:
                     lines = []
-                    for i, (member, msg_count, online_hours, daily_avg, bump_count) in enumerate(results, 1):
-                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {bump_count} bump")
+                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours) in enumerate(results, 1):
+                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
                     
                     # Çok uzunsa bölümlere ayır
                     if len(lines) > 20:
@@ -1049,19 +1066,19 @@ class WeeklyReports(commands.Cog):
                         lines = first_20
                     
                     embed.add_field(
-                        name=f"👥 Aktif Yetkili Kadro - Mesaj, Online & Bump ({len(results)} kişi)",
+                        name=f"👥 Aktif Yetkili Kadro - Mesaj, Online, Ses & Bump ({len(results)} kişi)",
                         value="\n".join(lines),
                         inline=False
                     )
                 else:
                     embed.add_field(
-                        name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
+                        name="👥 Aktif Yetkili Kadro - Mesaj, Online, Ses & Bump",
                         value="Bu hafta yetkili kadrosunda aktivite bulunamadı.",
                         inline=False
                     )
             except Exception as e:
                 embed.add_field(
-                    name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
+                    name="👥 Aktif Yetkili Kadro - Mesaj, Online, Ses & Bump",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )

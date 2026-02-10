@@ -364,6 +364,38 @@ class Database:
             ON channel_message_stats(guild_id, category_type, message_date)
             ''')
             
+            # Ses kanalı aktivite session'ları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS voice_activity_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                session_start TIMESTAMP NOT NULL,
+                session_end TIMESTAMP,
+                total_minutes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Voice activity sessions için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_guild_user
+            ON voice_activity_sessions(guild_id, user_id)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_time
+            ON voice_activity_sessions(session_start, session_end)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_guild_time
+            ON voice_activity_sessions(guild_id, session_start)
+            ''')
+            
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
             
@@ -1979,6 +2011,142 @@ class Database:
                 'error': str(e)
             }
     
+    async def start_voice_session(self, guild_id: int, user_id: int, username: str, channel_id: int, channel_name: str):
+        """Kullanıcı bir ses kanalına girdiğinde session başlatır.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            username (str): Kullanıcının adı
+            channel_id (int): Ses kanalı ID'si
+            channel_name (str): Ses kanalı adı
+            
+        Returns:
+            int: Session kaydının ID'si
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            # Önce varsa aktif session'ı sonlandır (güvenlik için)
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            # Yeni session başlat
+            await cursor.execute('''
+            INSERT INTO voice_activity_sessions (guild_id, user_id, username, channel_id, channel_name, session_start)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, channel_id, channel_name, current_time))
+            
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def end_voice_session(self, guild_id: int, user_id: int):
+        """Kullanıcı ses kanalından çıktığında aktif session'ı sonlandırır.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            
+        Returns:
+            bool: Güncelleme başarılı ise True, değilse False
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount > 0
+
+    async def get_voice_activity_stats(self, guild_id: int, start_date, end_date):
+        """Belirtilen tarih aralığında kullanıcıların ses kanalı sürelerini döndürür.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            list: Kullanıcı bazlı ses kanalı istatistikleri
+        """
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, MAX(username) as username, 
+                   SUM(COALESCE(total_minutes, CAST((julianday(COALESCE(session_end, ?)) - julianday(session_start)) * 24 * 60 AS INTEGER))) as total_minutes
+            FROM voice_activity_sessions
+            WHERE guild_id = ? AND session_start >= ? AND session_start < ?
+            GROUP BY user_id
+            ORDER BY total_minutes DESC
+            ''', (end_str, guild_id, start_str, end_str))
+            
+            rows = await cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                total_minutes = row[2] or 0
+                results.append({
+                    'user_id': row[0],
+                    'username': row[1],
+                    'total_minutes': total_minutes,
+                    'total_hours': round(total_minutes / 60, 1),
+                })
+            return results
+
+    async def end_all_voice_sessions(self, guild_id: int):
+        """Sunucudaki tüm aktif voice session'larını sonlandırır (bot restart için).
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            
+        Returns:
+            int: Sonlandırılan session sayısı
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount
+
+    async def cleanup_old_voice_sessions(self, days_to_keep=14):
+        """Eski voice activity session'larını temizler (varsayılan: 2 hafta).
+        
+        Args:
+            days_to_keep (int): Kaç günlük veriyi tutacak
+            
+        Returns:
+            int: Silinen kayıt sayısı
+        """
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days_to_keep)).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT COUNT(*) FROM voice_activity_sessions WHERE session_start < ?
+            ''', (cutoff_date,))
+            
+            count_to_delete = (await cursor.fetchone())[0]
+            
+            if count_to_delete > 0:
+                await cursor.execute('''
+                DELETE FROM voice_activity_sessions WHERE session_start < ?
+                ''', (cutoff_date,))
+                
+                await self.connection.commit()
+            
+            return count_to_delete
+
     async def record_channel_message(self, guild_id, channel_id, channel_name, category_type, user_id, message_date):
         """Bir mesajı kanal istatistiklerine kaydeder (günlük toplu)
         

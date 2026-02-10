@@ -81,12 +81,66 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Komut senkronizasyonu hatası: {e}")
     
+    # Ses kanallarındaki mevcut kullanıcıları takibe al
+    print("🔊 Ses kanalı takibi başlatılıyor...")
+    db = await get_db()
+    for guild in bot.guilds:
+        try:
+            # Önce eski kalan session'ları temizle (bot restart durumu)
+            ended = await db.end_all_voice_sessions(guild.id)
+            if ended > 0:
+                print(f"  ↳ {guild.name}: {ended} eski voice session sonlandırıldı")
+            
+            # Şu anda ses kanallarında olan kullanıcıları takibe al
+            voice_count = 0
+            for vc in guild.voice_channels:
+                for member in vc.members:
+                    if not member.bot:
+                        await db.start_voice_session(
+                            guild_id=guild.id,
+                            user_id=member.id,
+                            username=str(member),
+                            channel_id=vc.id,
+                            channel_name=vc.name
+                        )
+                        voice_count += 1
+            
+            # Stage kanallarını da kontrol et
+            for sc in guild.stage_channels:
+                for member in sc.members:
+                    if not member.bot:
+                        await db.start_voice_session(
+                            guild_id=guild.id,
+                            user_id=member.id,
+                            username=str(member),
+                            channel_id=sc.id,
+                            channel_name=sc.name
+                        )
+                        voice_count += 1
+            
+            if voice_count > 0:
+                print(f"  ↳ {guild.name}: {voice_count} kullanıcı ses kanalı takibine alındı")
+        except Exception as e:
+            print(f"  ↳ {guild.name}: Ses kanalı takibi başlatılamadı: {e}")
+    print("✅ Ses kanalı takibi başlatıldı!")
+    
     print("🚀 Bot tamamen hazır ve çalışıyor!")
 
 # Bot kapatıldığında çalışacak fonksiyon
 @bot.event
 async def on_close():
     print("🔄 Bot kapatılıyor...")
+    # Aktif voice session'ları sonlandır
+    print("🔊 Aktif ses kanalı session'ları sonlandırılıyor...")
+    try:
+        db_inst = await get_db()
+        for guild in bot.guilds:
+            ended = await db_inst.end_all_voice_sessions(guild.id)
+            if ended > 0:
+                print(f"  ↳ {guild.name}: {ended} voice session sonlandırıldı")
+    except Exception as e:
+        print(f"  ↳ Voice session sonlandırma hatası: {e}")
+    
     # Veritabanı bağlantısını kapat
     print("💾 Veritabanı bağlantısı kapatılıyor...")
     from database import db
@@ -171,6 +225,42 @@ async def on_message(message):
     
     # Komutları işlemeye devam et
     await bot.process_commands(message)
+
+# Ses kanalı takip sistemi - kullanıcıların ses kanallarında geçirdiği süreyi kaydetme
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """Kullanıcı ses kanalına girdiğinde, çıktığında veya kanal değiştirdiğinde çalışır"""
+    # Bot'ların ses aktivitesini takip etme
+    if member.bot:
+        return
+    
+    # Sunucu kontrolü
+    if not member.guild:
+        return
+    
+    try:
+        db = await get_db()
+        guild_id = member.guild.id
+        user_id = member.id
+        username = str(member)
+        
+        # Kullanıcı ses kanalından çıktı veya kanal değiştirdi
+        if before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
+            # Eski kanaldaki session'ı sonlandır
+            await db.end_voice_session(guild_id, user_id)
+        
+        # Kullanıcı yeni bir ses kanalına girdi veya kanal değiştirdi
+        if after.channel is not None and (before.channel is None or before.channel.id != after.channel.id):
+            # Yeni session başlat
+            await db.start_voice_session(
+                guild_id=guild_id,
+                user_id=user_id,
+                username=username,
+                channel_id=after.channel.id,
+                channel_name=after.channel.name
+            )
+    except Exception as e:
+        print(f"Ses kanalı takip hatası: {e}")
 
 # Yönetici gruplandırması oluşturma
 admin_group = app_commands.Group(name="admin", description="Yönetici komutları", 
