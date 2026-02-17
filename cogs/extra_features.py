@@ -389,65 +389,70 @@ class ExtraFeatures(commands.Cog):
         if message.author.bot:
             return
 
-        # Yetkili kullanıcıları kontrol et
+        # Yetkili kullanıcıları kontrol et (üst yönetim tamamen muaf)
         if any(role.id in self.EXEMPT_ROLES for role in message.author.roles):
             return
             
-        # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
+        # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (sadece yetkili olmayanlar için)
         try:
-            # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
-            # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
-            kurucu_role_etiketi = False
-            kurucu_kullanici_etiketi = False
-            
-            # Spesifik kurucu ID'si kontrolü
-            kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
-            
-            if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
-                kurucu_kullanici_etiketi = True
-            
-            # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
-            kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
-            if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
-                kurucu_role_etiketi = True
+            # Kullanıcının herhangi bir yetkili rolü var mı? (STAJYER'den KURUCU'ya kadar)
+            is_yetkili = any(r.id in YETKILI_ROLLERI.values() for r in message.author.roles)
 
-            if kurucu_role_etiketi or kurucu_kullanici_etiketi:
-                    try:
-                        await message.delete()
-                    except discord.Forbidden:
-                        pass
-                    except Exception:
-                        pass
+            # Sadece yetkili ROLÜ OLMAYAN kullanıcılar kurucuyu etiketleyemez
+            if not is_yetkili:
+                # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
+                # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
+                kurucu_role_etiketi = False
+                kurucu_kullanici_etiketi = False
+                
+                # Spesifik kurucu ID'si kontrolü
+                kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
+                
+                if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
+                    kurucu_kullanici_etiketi = True
+                
+                # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
+                kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
+                if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
+                    kurucu_role_etiketi = True
 
-                    # Kullanıcıya yönlendirici kısa uyarı
-                    try:
-                        ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
-                        ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
-                        await message.channel.send(f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
-                    except Exception:
-                        pass
+                if kurucu_role_etiketi or kurucu_kullanici_etiketi:
+                        try:
+                            await message.delete()
+                        except discord.Forbidden:
+                            pass
+                        except Exception:
+                            pass
 
-                    # Log kanalına bilgi
-                    try:
-                        log_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
-                        if log_channel:
-                            embed = discord.Embed(
-                                title="🚫 Kurucu Etiketleme Mesajı Silindi",
-                                description=(
-                                    f"**Kullanıcı:** {message.author.mention} ({message.author.id})\n"
-                                    f"**Kanal:** {message.channel.mention}\n"
-                                    f"**İçerik:** ```{message.content[:1000]}```"
-                                ),
-                                color=discord.Color.red(),
-                                timestamp=datetime.datetime.now(self.turkey_tz)
-                            )
-                            embed.set_thumbnail(url=message.author.display_avatar.url)
-                            embed.set_footer(text=f"{message.guild.name} • Kurucu Etiket Koruma")
-                            asyncio.create_task(self.safe_send(log_channel, embed=embed))
-                    except Exception:
-                        pass
+                        # Kullanıcıya yönlendirici kısa uyarı
+                        try:
+                            ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
+                            ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
+                            await message.channel.send(f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
+                        except Exception:
+                            pass
 
-                    return
+                        # Log kanalına bilgi
+                        try:
+                            log_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
+                            if log_channel:
+                                embed = discord.Embed(
+                                    title="🚫 Kurucu Etiketleme Mesajı Silindi",
+                                    description=(
+                                        f"**Kullanıcı:** {message.author.mention} ({message.author.id})\n"
+                                        f"**Kanal:** {message.channel.mention}\n"
+                                        f"**İçerik:** ```{message.content[:1000]}```"
+                                    ),
+                                    color=discord.Color.red(),
+                                    timestamp=datetime.datetime.now(self.turkey_tz)
+                                )
+                                embed.set_thumbnail(url=message.author.display_avatar.url)
+                                embed.set_footer(text=f"{message.guild.name} • Kurucu Etiket Koruma")
+                                asyncio.create_task(self.safe_send(log_channel, embed=embed))
+                        except Exception:
+                            pass
+
+                        return
         except Exception:
             pass
 
