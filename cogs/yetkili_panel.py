@@ -4918,7 +4918,7 @@ class SistemDurumuView(discord.ui.View):
         
         return embed
     
-    @discord.ui.button(label="🔄 Yenile", style=discord.ButtonStyle.green, emoji="🔄", row=0)
+    @discord.ui.button(label="Yenile", style=discord.ButtonStyle.green, emoji="🔄", row=0)
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sistem durumunu yenile"""
         if interaction.user.id != self.user.id:
@@ -4930,7 +4930,7 @@ class SistemDurumuView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Yenileme hatası: {e}", ephemeral=True)
     
-    @discord.ui.button(label="🧹 Cache Temizle", style=discord.ButtonStyle.secondary, emoji="🧹", row=0)
+    @discord.ui.button(label="Cache Temizle", style=discord.ButtonStyle.secondary, emoji="🧹", row=0)
     async def clear_cache_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cache'i temizle"""
         if interaction.user.id != self.user.id:
@@ -5007,7 +5007,7 @@ class SistemDurumuView(discord.ui.View):
         except Exception as e:
             print(f"Cache temizliği log gönderme hatası: {e}")
     
-    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ana menüye dön"""
         if interaction.user.id != self.user.id:
