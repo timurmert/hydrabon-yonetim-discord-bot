@@ -61,6 +61,20 @@ def guild_only():
         return True
     return app_commands.check(predicate)
 
+def create_main_panel_embed(guild):
+    """Ana yetkili paneli embed'ini oluşturur. Tekrarlanan kodu önler."""
+    embed = discord.Embed(
+        title="🛡️ HydRaboN Yetkili Paneli",
+        description=(
+            "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
+            "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
+        ),
+        color=0x3498db
+    )
+    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+    embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+    return embed
+
 class YetkiliIslemleriView(discord.ui.View):
     def __init__(self, cog, user, yetkili_rol_id):
         super().__init__(timeout=600)  # 10 dakika timeout
@@ -116,20 +130,8 @@ class YetkiliIslemleriView(discord.ui.View):
         """Geri dön butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -358,38 +360,6 @@ class YetkiliPanelView(discord.ui.View):
         view = KullaniciNotlariView(self.cog, self.user)
         await view.show_notes_panel(interaction)
 
-    @discord.ui.button(label="Ana Menü", style=discord.ButtonStyle.green, emoji="🏠", row=2)
-    async def ana_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Ana menüye dönüş butonu"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
-        view = YetkiliPanelView(self, interaction.user)
-        
-        if interaction.response.is_done():
-            # İlk mesaj gönderilmiş, düzenleme yapalım
-            await interaction.edit_original_response(embed=embed, view=view)
-            message = await interaction.original_response()
-        else:
-            # İlk mesaj henüz gönderilmemiş
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-            message = await interaction.original_response()
-        
-        view.message = message
-    
     async def show_stats(self, interaction: discord.Interaction):
         """Sunucu istatistiklerini gösterir"""
         guild = interaction.guild
@@ -539,14 +509,14 @@ class YetkiliPanelView(discord.ui.View):
         embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Geri dönüş butonu içeren view
-        view = YetkiliPanelView(self, interaction.user)
-        
+        view = YetkiliPanelView(self.cog, interaction.user)
+
         # Eğer interaction zaten yanıtlandıysa edit_message kullan
         if interaction.response.is_done():
             await interaction.edit_original_response(embed=embed, view=view)
         else:
             await interaction.response.edit_message(embed=embed, view=view)
-        
+
         view.message = await interaction.original_response()
 
 class BasvurularView(discord.ui.View):
@@ -647,20 +617,8 @@ class BasvurularView(discord.ui.View):
         """Geri dön butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -860,24 +818,12 @@ class BasvuruDetayView(discord.ui.View):
         """Ana menüye dönüş butonu"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
-    
+
 class YetkiliDuyuruView(discord.ui.View):
     def __init__(self, cog, user):
         super().__init__(timeout=600)  # 10 dakika timeout
@@ -915,19 +861,7 @@ class YetkiliDuyuruView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -1118,19 +1052,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -1458,19 +1380,7 @@ class OtomatikMesajlarView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -3074,19 +2984,10 @@ class KullaniciNotlariView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana panele dön
+        embed = create_main_panel_embed(interaction.guild)
         main_view = YetkiliPanelView(self.cog, self.user)
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x00ff00,
-            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
-        )
-        embed.set_footer(text=f"Kullanıcı: {self.user.name}")
         await interaction.response.edit_message(embed=embed, view=main_view)
+        main_view.message = await interaction.original_response()
     
     async def show_detailed_stats(self, interaction: discord.Interaction):
         """Detaylı istatistikleri gösterir"""
@@ -3970,17 +3871,7 @@ class YetkiliPanel(commands.Cog):
 
     async def show_main_panel(self, interaction: discord.Interaction):
         """Ana yetkili panelini gösterir"""
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+        embed = create_main_panel_embed(interaction.guild)
         
         view = YetkiliPanelView(self, interaction.user)
         
@@ -5013,19 +4904,7 @@ class SistemDurumuView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
