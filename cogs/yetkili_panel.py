@@ -22,6 +22,7 @@ YETKILI_ROLLERI = {
     "YÖNETİM KURULU ADAYLARI": 1412843482980290711,
     "YÖNETİM KURULU ÜYELERİ": 1029089731314720798,
     "YÖNETİM KURULU BAŞKANI": 1029089727061692522,
+    "KURUCU YARDIMCISI": 1459975838853238897,
     "KURUCU": 1029089723110674463
 }
 
@@ -35,6 +36,7 @@ YETKILI_HIYERARSI = [
     1412843482980290711,  # YÖNETİM KURULU ADAYLARI
     1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
     1029089727061692522,  # YÖNETİM KURULU BAŞKANI
+    1459975838853238897,  # KURUCU YARDIMCISI
     1029089723110674463   # KURUCU
 ]
 
@@ -43,6 +45,7 @@ MANAGEMENT_ALLOWED_ROLE_IDS = [
     YETKILI_ROLLERI["YÖNETİM KURULU ADAYLARI"],
     YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
     YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
+    YETKILI_ROLLERI["KURUCU YARDIMCISI"],
     YETKILI_ROLLERI["KURUCU"],
 ]
 
@@ -205,15 +208,15 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             embed = discord.Embed(
                 title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                description="Bu özelliği kullanabilmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 color=discord.Color.red()
             )
             return await interaction.response.edit_message(embed=embed, view=self)
-        
+
         # Yetkili duyuru alt menüsünü göster
         view = YetkiliDuyuruView(self.cog, self.user)
         embed = discord.Embed(
@@ -899,13 +902,13 @@ class YetkiliDuyuruView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             return await interaction.response.send_message(
-                "Bu işlemi gerçekleştirmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                "Bu işlemi gerçekleştirmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 ephemeral=True
             )
-        
+
         # Duyuru oluşturma modalını göster
         await interaction.response.send_modal(YetkiliDuyuruModal(self.cog, self.user))
     
@@ -1003,13 +1006,13 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             return await interaction.response.send_message(
-                "Bu işlemi gerçekleştirmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                "Bu işlemi gerçekleştirmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 ephemeral=True
             )
-        
+
         # Rol seçilip seçilmediğini kontrol et
         if not self.secilen_roller:
             return await interaction.response.send_message(
