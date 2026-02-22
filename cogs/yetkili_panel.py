@@ -62,6 +62,14 @@ def user_has_moderator_permission(user: discord.Member) -> bool:
             return True
     return False
 
+def yetersiz_yetki_embed(gereken_yetki: str) -> discord.Embed:
+    """Standart yetersiz yetki hata embed'i oluşturur."""
+    return discord.Embed(
+        title="⚠️ Yetersiz Yetki",
+        description=f"Bu özelliği kullanabilmek için en az {gereken_yetki} yetkisine sahip olmanız gerekiyor.",
+        color=discord.Color.red()
+    )
+
 # Komutlar için dekoratör
 def guild_only():
     """Bu dekoratör, komutun yalnızca sunucu içinde çalışabilmesini sağlar."""
@@ -176,14 +184,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # Yönetim izin kontrolü: YK Üyeleri, YK Başkanı ve Kurucu dışındaki herkes engellenir
         if not user_has_management_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description=(
-                    "Bu işlem için yetkiniz yetersiz."
-                ),
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
 
         # Yetkili işlemleri alt menüsünü göster
         view = YetkiliIslemleriView(self.cog, self.user, self.yetkili_rol_id)
@@ -202,12 +203,7 @@ class YetkiliPanelView(discord.ui.View):
 
         # Moderatör veya daha üstü rol kontrolü
         if not user_has_moderator_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
 
         # Başvurular alt menüsünü göster
         view = BasvurularView(self.cog, self.user)
@@ -227,12 +223,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # Yönetim Kurulu ve üstü rol kontrolü
         if not user_has_management_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
 
         # Yetkili duyuru alt menüsünü göster
         view = YetkiliDuyuruView(self.cog, self.user)
@@ -260,12 +251,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # Moderatör veya daha üstü rol kontrolü
         if not user_has_moderator_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
 
         # BumpTracker cog'unu al
         bump_tracker = interaction.client.get_cog("BumpTracker")
@@ -310,12 +296,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # Moderatör veya daha üstü rol kontrolü
         if not user_has_moderator_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
 
         # Otomatik mesajlar alt menüsünü göster
         view = OtomatikMesajlarView(self.cog, interaction.user) # interaction.user kullanılmalı
@@ -336,12 +317,7 @@ class YetkiliPanelView(discord.ui.View):
         
         # YK ve üstü rol kontrolü
         if not user_has_management_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
 
         # Sistem durumu view'ını göster
         view = SistemDurumuView(self.cog, self.user)
@@ -355,13 +331,8 @@ class YetkiliPanelView(discord.ui.View):
         
         # Moderatör veya daha üstü rol kontrolü
         if not user_has_moderator_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
+
         # Kullanıcı notları view'ını göster
         view = KullaniciNotlariView(self.cog, self.user)
         await view.show_notes_panel(interaction)
@@ -1314,7 +1285,7 @@ class YetkiliEkleModal(discord.ui.Modal, title="Yetkili Ekle"):
     async def on_submit(self, interaction: discord.Interaction):
         # Yönetim izni kontrolü
         if not user_has_management_permission(interaction.user):
-            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+            return await interaction.response.send_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), ephemeral=True)
         try:
             hedef_id = int(self.user_id_input.value)
         except ValueError:
@@ -1353,7 +1324,7 @@ class YetkiliCikartModal(discord.ui.Modal, title="Yetkili Çıkart"):
     async def on_submit(self, interaction: discord.Interaction):
         # Yönetim izni kontrolü
         if not user_has_management_permission(interaction.user):
-            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+            return await interaction.response.send_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         try:
             hedef_id = int(self.user_id_input.value)
