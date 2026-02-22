@@ -54,6 +54,14 @@ YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
 def user_has_management_permission(user: discord.Member) -> bool:
     return any(role.id in MANAGEMENT_ALLOWED_ROLE_IDS for role in user.roles)
 
+def user_has_moderator_permission(user: discord.Member) -> bool:
+    """Kullanıcının Moderatör veya daha üst bir yetkili rolüne sahip olup olmadığını kontrol eder."""
+    moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
+    for i, rol_id in enumerate(YETKILI_HIYERARSI):
+        if i >= moderator_index and any(r.id == rol_id for r in user.roles):
+            return True
+    return False
+
 # Komutlar için dekoratör
 def guild_only():
     """Bu dekoratör, komutun yalnızca sunucu içinde çalışabilmesini sağlar."""
@@ -242,20 +250,14 @@ class YetkiliPanelView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Moderatör veya daha üstü rol kontrolü
-        moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
-        user_index = -1
-        for i, rol_id in enumerate(YETKILI_HIYERARSI):
-            if any(r.id == rol_id for r in interaction.user.roles):
-                user_index = i
-        
-        if user_index < moderator_index:  # Kullanıcı en az Moderatör değilse
+        if not user_has_moderator_permission(interaction.user):
             embed = discord.Embed(
                 title="⚠️ Yetersiz Yetki",
                 description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
                 color=discord.Color.red()
             )
             return await interaction.response.edit_message(embed=embed, view=self)
-        
+
         # BumpTracker cog'unu al
         bump_tracker = interaction.client.get_cog("BumpTracker")
         
@@ -298,20 +300,14 @@ class YetkiliPanelView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Moderatör veya daha üstü rol kontrolü
-        moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
-        user_index = -1
-        for i, rol_id in enumerate(YETKILI_HIYERARSI):
-            if any(r.id == rol_id for r in interaction.user.roles):
-                user_index = i
-        
-        if user_index < moderator_index:  # Kullanıcı en az Moderatör değilse
+        if not user_has_moderator_permission(interaction.user):
             embed = discord.Embed(
                 title="⚠️ Yetersiz Yetki",
                 description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
                 color=discord.Color.red()
             )
             return await interaction.response.edit_message(embed=embed, view=self)
-        
+
         # Otomatik mesajlar alt menüsünü göster
         view = OtomatikMesajlarView(self.cog, interaction.user) # interaction.user kullanılmalı
         embed = discord.Embed(
@@ -348,11 +344,11 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Admin yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Moderatör veya daha üstü rol kontrolü
+        if not user_has_moderator_permission(interaction.user):
             embed = discord.Embed(
                 title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
                 color=discord.Color.red()
             )
             return await interaction.response.edit_message(embed=embed, view=self)
@@ -1840,8 +1836,8 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                 )
             
             # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-            # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-            is_admin = interaction.user.guild_permissions.administrator
+            # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+            is_admin = user_has_moderator_permission(interaction.user)
             is_owner = mesaj['created_by'] == interaction.user.id
             
             if not is_admin and not is_owner:
@@ -2725,8 +2721,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2745,8 +2741,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2765,8 +2761,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2785,8 +2781,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
