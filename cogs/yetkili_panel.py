@@ -199,7 +199,16 @@ class YetkiliPanelView(discord.ui.View):
         """Başvurular butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
+
+        # Moderatör veya daha üstü rol kontrolü
+        if not user_has_moderator_permission(interaction.user):
+            embed = discord.Embed(
+                title="⚠️ Yetersiz Yetki",
+                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
+                color=discord.Color.red()
+            )
+            return await interaction.response.edit_message(embed=embed, view=self)
+
         # Başvurular alt menüsünü göster
         view = BasvurularView(self.cog, self.user)
         embed = discord.Embed(
