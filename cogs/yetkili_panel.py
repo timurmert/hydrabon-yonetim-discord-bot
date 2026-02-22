@@ -329,15 +329,15 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Admin yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # YK ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             embed = discord.Embed(
                 title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                description="Bu özelliği kullanabilmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 color=discord.Color.red()
             )
             return await interaction.response.edit_message(embed=embed, view=self)
-        
+
         # Sistem durumu view'ını göster
         view = SistemDurumuView(self.cog, self.user)
         await view.show_system_status(interaction)
