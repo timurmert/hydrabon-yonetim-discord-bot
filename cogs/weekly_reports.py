@@ -1449,6 +1449,7 @@ class WeeklyReports(commands.Cog):
                 # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
                     1029089723110674463,  # KURUCU
+                    1459975838853238897,  # KURUCU YARDIMCISI
                     1029089727061692522,  # YK BAŞKANI
                 }
 
