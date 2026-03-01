@@ -1551,7 +1551,37 @@ class WeeklyReports(commands.Cog):
                 )
             
             # Son Aktiviteler bölümü kaldırıldı
-            
+
+            # === YETKİLİ DAĞILIMI ===
+            try:
+                yetkili_rolleri = [
+                    ("YK Üyeleri", 1029089731314720798),
+                    ("YK Adayları", 1412843482980290711),
+                    ("Admin", 1163918130192580608),
+                    ("Kıdemli Moderatör", 1460021463607152703),
+                    ("Moderatör", 1163918107501412493),
+                    ("Asistan", 1200919832393154680),
+                    ("Stajyer", 1163918714081644554),
+                ]
+
+                dist_lines = []
+                toplam_yetkili = 0
+                for rol_adi, rol_id in yetkili_rolleri:
+                    role = guild.get_role(rol_id)
+                    count = len(role.members) if role else 0
+                    toplam_yetkili += count
+                    dist_lines.append(f"**{rol_adi}:** {count} kişi")
+
+                dist_lines.append(f"\n**Toplam Yetkili:** {toplam_yetkili} kişi")
+
+                embed.add_field(
+                    name="🛡️ Yetkili Dağılımı",
+                    value="\n".join(dist_lines),
+                    inline=True
+                )
+            except Exception as e:
+                print(f"Yetkili dağılımı eklenirken hata: {e}")
+
             # === SUNUCU BİLGİLERİ ===
             online_members = len([m for m in guild.members if m.status != discord.Status.offline])
             
