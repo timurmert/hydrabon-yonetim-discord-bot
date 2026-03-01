@@ -216,7 +216,7 @@ class WeeklyReports(commands.Cog):
         
         return None
     
-    @tasks.loop(time=datetime.time(hour=9, tzinfo=datetime.timezone.utc))
+    @tasks.loop(time=datetime.time(hour=12, tzinfo=datetime.timezone.utc))
     async def weekly_report_task(self):
         """Haftalık rapor görevi - Her Pazar 12:00'da çalışır (Optimize edilmiş)"""
         try:
