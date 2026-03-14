@@ -94,6 +94,109 @@ def create_main_panel_embed(guild):
     embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
     return embed
 
+# Tag rol ID'si (HRN tag)
+TAG_ROLE_ID = 1467145841830789367
+
+# Yetkili İşlemleri embed'i için rol sıralaması (en yüksekten en düşüğe)
+YETKILI_KADRO_ROLLERI = [
+    ("KURUCU", YETKILI_ROLLERI["KURUCU"]),
+    ("KURUCU YARDIMCISI", YETKILI_ROLLERI["KURUCU YARDIMCISI"]),
+    ("YK BAŞKANI", YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"]),
+    ("YK ÜYELERİ", YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"]),
+    ("YK ADAYLARI", YETKILI_ROLLERI["YÖNETİM KURULU ADAYLARI"]),
+    ("ADMİN", YETKILI_ROLLERI["ADMİN"]),
+    ("KIDEMLİ MODERATÖR", YETKILI_ROLLERI["KIDEMLİ MODERATÖR"]),
+    ("MODERATÖR", YETKILI_ROLLERI["MODERATÖR"]),
+    ("ASİSTAN", YETKILI_ROLLERI["ASİSTAN"]),
+    ("STAJYER", YETKILI_ROLLERI["STAJYER"]),
+]
+
+def _get_status_emoji(member: discord.Member) -> str:
+    """Üyenin online durumuna göre emoji döndürür."""
+    status_map = {
+        discord.Status.online: "🟢",
+        discord.Status.idle: "🟡",
+        discord.Status.dnd: "🔴",
+        discord.Status.offline: "⚫",
+    }
+    return status_map.get(member.status, "⚫")
+
+async def build_yetkili_kadro_embed(guild: discord.Guild) -> discord.Embed:
+    """Yetkili İşlemleri sayfası için tüm yetkililer rol rol listelenir."""
+    turkey_tz = pytz.timezone('Europe/Istanbul')
+    tag_role = guild.get_role(TAG_ROLE_ID)
+    tag_member_ids = {m.id for m in tag_role.members} if tag_role else set()
+
+    # Bir üyenin hangi role ait olduğunu bul (en yüksek yetkili rolü)
+    # Aynı üye birden fazla rol grubunda görünmesin
+    assigned_members = set()
+
+    embed = discord.Embed(
+        title="🛡️ Yetkili İşlemleri — Yetkili Kadro",
+        description="Tüm yetkililer rol bazında aşağıda listelenmiştir.\nLütfen yapmak istediğiniz işlemi alt butonlardan seçin.",
+        color=0x3498db,
+    )
+    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+
+    toplam_yetkili = 0
+
+    for rol_adi, rol_id in YETKILI_KADRO_ROLLERI:
+        role = guild.get_role(rol_id)
+        if not role:
+            continue
+
+        # Bu role sahip, henüz üst rolde listelenmemiş üyeleri al
+        members = [m for m in role.members if m.id not in assigned_members]
+        if not members:
+            embed.add_field(
+                name=f"{'─' * 2} {rol_adi} (0) {'─' * 2}",
+                value="Kimse yok",
+                inline=False,
+            )
+            continue
+
+        # Üyeleri online durumuna göre sırala (online > idle > dnd > offline)
+        status_order = {discord.Status.online: 0, discord.Status.idle: 1, discord.Status.dnd: 2, discord.Status.offline: 3}
+        members.sort(key=lambda m: status_order.get(m.status, 4))
+
+        lines = []
+        for member in members:
+            assigned_members.add(member.id)
+            status_emoji = _get_status_emoji(member)
+            tag_status = "Var" if member.id in tag_member_ids else "Yok"
+            lines.append(f"{status_emoji} {member.mention} — Tag: **{tag_status}**")
+
+        toplam_yetkili += len(members)
+
+        # 1024 karakter limiti kontrolü - field'ları böl
+        field_title = f"{'─' * 2} {rol_adi} ({len(members)}) {'─' * 2}"
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for line in lines:
+            line_len = len(line) + 1
+            if current_length + line_len > 1024 and current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = [line]
+                current_length = len(line)
+            else:
+                current_chunk.append(line)
+                current_length += line_len
+
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+
+        for idx, chunk in enumerate(chunks):
+            name = field_title if idx == 0 else f"{rol_adi} (devam)"
+            embed.add_field(name=name, value=chunk, inline=False)
+
+    embed.set_footer(
+        text=f"Toplam Yetkili: {toplam_yetkili} | {guild.name} • {datetime.datetime.now(turkey_tz).strftime('%d.%m.%Y %H:%M')}"
+    )
+
+    return embed
+
 class YetkiliIslemleriView(discord.ui.View):
     def __init__(self, cog, user, yetkili_rol_id):
         super().__init__(timeout=600)  # 10 dakika timeout
@@ -183,18 +286,14 @@ class YetkiliPanelView(discord.ui.View):
         """Yetkili işlemleri butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
+
         # Yönetim izin kontrolü: YK Üyeleri, YK Başkanı ve Kurucu dışındaki herkes engellenir
         if not user_has_management_permission(interaction.user):
             return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
 
-        # Yetkili işlemleri alt menüsünü göster
+        # Yetkili işlemleri alt menüsünü göster - tüm yetkililer rol rol listelenir
         view = YetkiliIslemleriView(self.cog, self.user, self.yetkili_rol_id)
-        embed = discord.Embed(
-            title="🛡️ Yetkili İşlemleri",
-            description="Yetkili işlemleri menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
-            color=0x3498db
-        )
+        embed = await build_yetkili_kadro_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed, view=view)
     
     @discord.ui.button(label="Başvurular", style=discord.ButtonStyle.blurple, emoji="📝", row=0)
