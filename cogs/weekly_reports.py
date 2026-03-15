@@ -976,8 +976,17 @@ class WeeklyReports(commands.Cog):
                 ''', (spam_cutoff.isoformat(),))
 
                 # Eski staff_changes kayıtlarını temizle (28 gün öncesi)
+                # Her yetkilinin en son rol atamasını koru
                 await cursor.execute('''
-                DELETE FROM staff_changes WHERE created_at < ?
+                DELETE FROM staff_changes
+                WHERE created_at < ?
+                AND id NOT IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+                        FROM staff_changes
+                        WHERE action IN ('added', 'promoted', 'demoted')
+                    ) WHERE rn = 1
+                )
                 ''', (cleanup_cutoff.isoformat(),))
 
                 # Eski staff_message_stats kayıtlarını temizle (28 gün öncesi)
@@ -1485,6 +1494,9 @@ class WeeklyReports(commands.Cog):
                         1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
                     }
 
+                # Yetkili rol atama tarihlerini al
+                staff_role_dates = await db.get_staff_current_role_dates(guild.id)
+
                 # Veritabanından tüm yetkili mesaj verilerini al
                 message_stats = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
 
@@ -1525,6 +1537,40 @@ class WeeklyReports(commands.Cog):
                 # Ses kanalı saatlerini dictionary'ye çevir
                 voice_stats_dict = {stat['user_id']: stat for stat in voice_activity_stats}
 
+                # Yetkili rol hiyerarşisi (yüksekten düşüğe) ve kısa adları
+                role_hierarchy = [
+                    (1029089731314720798, "YK Üyesi"),
+                    (1412843482980290711, "YK Adayı"),
+                    (1163918130192580608, "Admin"),
+                    (1460021463607152703, "K.Mod"),
+                    (1163918107501412493, "Mod"),
+                    (1200919832393154680, "Asistan"),
+                    (1163918714081644554, "Stajyer"),
+                ]
+
+                def get_highest_staff_role(member):
+                    """Üyenin en yüksek yetkili rolünü döndürür"""
+                    user_role_ids = {r.id for r in member.roles}
+                    for role_id, role_name in role_hierarchy:
+                        if role_id in user_role_ids:
+                            return role_name
+                    return "Yetkili"
+
+                def format_role_duration(member_id):
+                    """Rol süresini okunabilir formata çevirir"""
+                    role_data = staff_role_dates.get(member_id)
+                    if not role_data or not role_data['assigned_at']:
+                        return None
+                    try:
+                        assigned_at = datetime.datetime.fromisoformat(role_data['assigned_at'])
+                        if assigned_at.tzinfo is None:
+                            assigned_at = assigned_at.replace(tzinfo=pytz.UTC)
+                        now = datetime.datetime.now(pytz.UTC)
+                        delta = now - assigned_at
+                        return f"{delta.days} gün"
+                    except Exception:
+                        return None
+
                 # Tüm yetkililer için results listesi oluştur
                 results = []
 
@@ -1553,16 +1599,21 @@ class WeeklyReports(commands.Cog):
                     # Bump sayısını al (yoksa 0)
                     bump_count = bump_user_stats.get(member.id, 0)
 
+                    # Rol bilgisi ve süre
+                    role_name = get_highest_staff_role(member)
+                    role_duration = format_role_duration(member.id)
+                    role_info = f"{role_name} ({role_duration})" if role_duration else role_name
+
                     score = self.calculate_staff_score(msg_count, online_data['total_hours'], voice_data['total_hours'], bump_count)
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours'], score))
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours'], score, role_info))
 
                 # Puana göre sırala (yüksekten düşüğe)
                 results.sort(key=lambda x: x[6], reverse=True)
 
                 if results:
                     all_lines = []
-                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours, score) in enumerate(results, 1):
-                        all_lines.append(f"**{i}.** {member.mention} • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
+                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours, score, role_info) in enumerate(results, 1):
+                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
 
                     # Satırları 1024 karakter limitine göre field'lara böl
                     chunks = []

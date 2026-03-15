@@ -1427,6 +1427,34 @@ class Database:
                 })
             return changes
 
+    async def get_staff_current_role_dates(self, guild_id: int):
+        """Her yetkilinin mevcut rolüne atandığı tarihi döndürür.
+
+        Returns:
+            dict: {user_id: {'role_name': str, 'assigned_at': str}}
+        """
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, new_role_name, created_at
+            FROM staff_changes
+            WHERE guild_id = ? AND action IN ('added', 'promoted', 'demoted')
+            AND id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+                    FROM staff_changes
+                    WHERE guild_id = ? AND action IN ('added', 'promoted', 'demoted')
+                ) WHERE rn = 1
+            )
+            ''', (guild_id, guild_id))
+            rows = await cursor.fetchall()
+            result = {}
+            for row in rows:
+                result[row[0]] = {
+                    'role_name': row[1],
+                    'assigned_at': row[2]
+                }
+            return result
+
     async def get_staff_change_stats(self, guild_id: int, start_date, end_date):
         """Belirli tarih aralığında action'a göre sayıları döndürür."""
         async with self.connection.cursor() as cursor:
