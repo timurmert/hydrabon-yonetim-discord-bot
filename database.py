@@ -1907,33 +1907,46 @@ class Database:
         end_str = end_date.isoformat()
         
         async with self.connection.cursor() as cursor:
-            # Toplam özel oda sayısı
+            # Toplam özel oda sayısı (dönem içinde aktif olan odalar)
+            # Bir oda aktiftir eğer: dönemden önce/içinde oluşturulmuş VE dönem içinde/sonrasında kapanmış veya hâlâ açık
             await cursor.execute('''
-            SELECT COUNT(*) FROM private_room_logs 
-            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
-            ''', (guild_id, start_str, end_str))
-            
+            SELECT COUNT(*) FROM private_room_logs
+            WHERE guild_id = ? AND created_at < ? AND (deleted_at >= ? OR deleted_at IS NULL)
+            ''', (guild_id, end_str, start_str))
+
             total_rooms = (await cursor.fetchone())[0]
-            
+
             # Toplam süre (dakika cinsinden)
-            # Hala açık olan odalar için şu anki zamanı kullan
+            # Odanın rapor dönemiyle çakışan kısmını hesapla
+            # effective_start = MAX(created_at, start_date)
+            # effective_end = MIN(deleted_at veya end_date, end_date)
             await cursor.execute('''
             SELECT SUM(
-                CASE 
-                    WHEN deleted_at IS NOT NULL THEN duration_minutes
-                    ELSE CAST((julianday(?) - julianday(created_at)) * 24 * 60 AS INTEGER)
-                END
+                CAST(
+                    (julianday(
+                        CASE
+                            WHEN deleted_at IS NOT NULL AND deleted_at < ? THEN deleted_at
+                            ELSE ?
+                        END
+                    ) - julianday(
+                        CASE
+                            WHEN created_at > ? THEN created_at
+                            ELSE ?
+                        END
+                    )) * 24 * 60
+                AS INTEGER)
             )
-            FROM private_room_logs 
-            WHERE guild_id = ? AND created_at >= ? AND created_at < ?
-            ''', (end_str, guild_id, start_str, end_str))
-            
+            FROM private_room_logs
+            WHERE guild_id = ? AND created_at < ? AND (deleted_at >= ? OR deleted_at IS NULL)
+            ''', (end_str, end_str, start_str, start_str, guild_id, end_str, start_str))
+
             total_minutes = (await cursor.fetchone())[0] or 0
+            total_minutes = max(total_minutes, 0)
             total_hours = round(total_minutes / 60, 1) if total_minutes > 0 else 0
-            
+
             # Ortalama süre hesapla
             avg_minutes = round(total_minutes / total_rooms, 1) if total_rooms > 0 else 0
-            
+
             return {
                 'total_rooms': total_rooms,
                 'total_minutes': total_minutes,
