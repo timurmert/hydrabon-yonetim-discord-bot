@@ -209,10 +209,10 @@ class YetkiliAlim(commands.Cog):
         # Form soruları
         questions = [
             "Adınız ve yaşınız nedir?",
-            "Discord'da günde kaç saat aktif olabilirsiniz?",
             "Discord sunucularında yetkililik deneyiminiz var mı? Varsa ne kadar süre?",
             "Sunucumuzda yetkili olmak isteme sebebiniz nedir?",
-            "Sizce iyi bir Discord yetkilisinin sahip olması gereken özellikler nelerdir?"
+            "Yetkili kanallarını takip edip sunucu içi sohbetlere aktif olarak katılım sağlayabilir misiniz?",
+            "Üzerinize düşen görevleri yerine getirmemeniz durumunda yetkinizdeki olası değişiklikleri kabul ediyor musunuz?"
         ]
         
         # Senkronizasyon kontrolü
