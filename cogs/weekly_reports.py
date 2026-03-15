@@ -9,6 +9,14 @@ import io
 from database import get_db
 
 class WeeklyReports(commands.Cog):
+    # Puanlama sabitleri
+    MSG_WEIGHT = 1.0
+    VOICE_WEIGHT = 4.0
+    BUMP_WEIGHT = 10.0
+    MESSAGES_PER_HOUR = 30
+    EFFICIENCY_FLOOR = 0.7
+    EFFICIENCY_BONUS = 0.6
+
     def __init__(self, bot):
         self.bot = bot
         self.REPORT_CHANNEL_ID = 1400154619962851480  # YK rapor kanalı
@@ -39,7 +47,15 @@ class WeeklyReports(commands.Cog):
             pass
         # Rapor komut grubunu bot'tan kaldır
         self.bot.tree.remove_command(self.rapor_group.name)
-    
+
+    def calculate_staff_score(self, msg_count, online_hours, voice_hours, bump_count):
+        """Yetkili performans puanını hesaplar (verimlilik bazlı)"""
+        base = (msg_count * self.MSG_WEIGHT) + (voice_hours * self.VOICE_WEIGHT) + (bump_count * self.BUMP_WEIGHT)
+        active_hours = voice_hours + (msg_count / self.MESSAGES_PER_HOUR)
+        efficiency = active_hours / max(online_hours, 1)
+        multiplier = self.EFFICIENCY_FLOOR + self.EFFICIENCY_BONUS * min(efficiency, 1.0)
+        return round(base * multiplier, 1)
+
     def setup_commands(self):
         """Rapor komutlarını gruba ekler"""
         
@@ -1227,7 +1243,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': kick['action_time'],
-                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Yetkili: <@{kick['moderator_id']}> • Sebep: {reason}"
                         })
                     
                     # Ban işlemleri
@@ -1238,7 +1254,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': ban['action_time'],
-                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Yetkili: <@{ban['moderator_id']}> • Sebep: {reason}"
                         })
                     
                     # Zamana göre sırala (en yeni önce)
@@ -1537,15 +1553,16 @@ class WeeklyReports(commands.Cog):
                     # Bump sayısını al (yoksa 0)
                     bump_count = bump_user_stats.get(member.id, 0)
 
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours']))
+                    score = self.calculate_staff_score(msg_count, online_data['total_hours'], voice_data['total_hours'], bump_count)
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours'], score))
 
-                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra ses saatlerine göre, sonra bump sayısına göre)
-                results.sort(key=lambda x: (x[1], x[2], x[5], x[4]), reverse=True)
+                # Puana göre sırala (yüksekten düşüğe)
+                results.sort(key=lambda x: x[6], reverse=True)
 
                 if results:
                     all_lines = []
-                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours) in enumerate(results, 1):
-                        all_lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
+                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours, score) in enumerate(results, 1):
+                        all_lines.append(f"**{i}.** {member.mention} • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
 
                     # Satırları 1024 karakter limitine göre field'lara böl
                     chunks = []
