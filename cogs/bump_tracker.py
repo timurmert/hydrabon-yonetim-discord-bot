@@ -207,12 +207,13 @@ class BumpTracker(commands.Cog):
         if message.channel.id != self.BUMP_CHANNEL_ID:
             return
 
-        # Başarılı bump mesajını kontrol et (DISBOARD embed içinde "Bump done" yazar)
+        # Başarılı bump mesajını kontrol et
         is_successful_bump = False
         if message.embeds:
             for embed in message.embeds:
                 desc = (embed.description or "").lower()
-                if "bump done" in desc:
+                # Türkçe: "Öne çıkarma başarılı", İngilizce: "Bump done"
+                if "öne çıkarma başarılı" in desc or "bump done" in desc:
                     is_successful_bump = True
                     break
 
@@ -221,12 +222,15 @@ class BumpTracker(commands.Cog):
 
         # Bump yapan kullanıcıyı DISBOARD'un interaction metadata'sından al
         bump_user = None
-        if message.interaction:
-            bump_user = message.interaction.user
-        elif message.interaction_metadata:
+        if hasattr(message, 'interaction_metadata') and message.interaction_metadata:
             bump_user = message.interaction_metadata.user
+        elif hasattr(message, 'interaction') and message.interaction:
+            bump_user = message.interaction.user
 
         if bump_user is None:
+            print(f"[BumpTracker] DISBOARD bump algılandı ancak kullanıcı tespit edilemedi. "
+                  f"interaction={getattr(message, 'interaction', None)}, "
+                  f"interaction_metadata={getattr(message, 'interaction_metadata', None)}")
             return
 
         # Guild member objesini al (roller için gerekli)
