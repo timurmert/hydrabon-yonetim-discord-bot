@@ -161,11 +161,6 @@ class BumpTracker(commands.Cog):
                 return True
         return False
     
-    async def check_last_message_is_disboard(self, channel):
-        async for message in channel.history(limit=1):
-            return message.author.id == self.DISBOARD_BOT_ID
-        return False
-    
     async def get_bump_count(self, user_id, guild_id):
         """Kullanıcının toplam bump sayısını getirir"""
         async with self.db.connection.cursor() as cursor:
@@ -203,66 +198,83 @@ class BumpTracker(commands.Cog):
             print(f"Veritabanı hatası (add_bump): {e}")
             raise
     
-    @app_commands.command(
-        name="bump", 
-        description="Yetkili bump sayınızı günceller"
-    )
-    async def bump_command(self, interaction: discord.Interaction):
-        if interaction.channel_id != self.BUMP_CHANNEL_ID:
-            return await interaction.response.send_message(
-                "Bu komutu sadece bump kanalında kullanabilirsiniz!",
-                ephemeral=True
-            )
-        
-        if not self.is_staff(interaction.user):
-            return await interaction.response.send_message(
-                "Bu komutu sadece yetkililer kullanabilir!",
-                ephemeral=True
-            )
-        
-        channel = interaction.channel
-        is_disboard_last = await self.check_last_message_is_disboard(channel)
-        
-        if not is_disboard_last:
-            return await interaction.response.send_message(
-                "Bu komutu kullanabilmek için son mesajın DISBOARD botuna ait olması gerekiyor!",
-                ephemeral=True
-            )
-        
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """DISBOARD botunun başarılı bump yanıtını algılayıp otomatik bump kaydı oluşturur."""
+        # Sadece DISBOARD botunun bump kanalındaki mesajlarını dinle
+        if message.author.id != self.DISBOARD_BOT_ID:
+            return
+        if message.channel.id != self.BUMP_CHANNEL_ID:
+            return
+
+        # Başarılı bump mesajını kontrol et (DISBOARD embed içinde "Bump done" yazar)
+        is_successful_bump = False
+        if message.embeds:
+            for embed in message.embeds:
+                desc = (embed.description or "").lower()
+                if "bump done" in desc:
+                    is_successful_bump = True
+                    break
+
+        if not is_successful_bump:
+            return
+
+        # Bump yapan kullanıcıyı DISBOARD'un interaction metadata'sından al
+        bump_user = None
+        if message.interaction:
+            bump_user = message.interaction.user
+        elif message.interaction_metadata:
+            bump_user = message.interaction_metadata.user
+
+        if bump_user is None:
+            return
+
+        # Guild member objesini al (roller için gerekli)
+        guild = message.guild
+        if guild is None:
+            return
+
+        member = guild.get_member(bump_user.id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(bump_user.id)
+            except Exception:
+                return
+
+        # Yetkili kontrolü
+        if not self.is_staff(member):
+            return
+
+        # Bump kaydını oluştur
         try:
-            await interaction.response.defer()
-            
-            user = interaction.user
-            guild_id = interaction.guild_id
-            bump_count = await self.add_bump(user.id, user.display_name, guild_id)
-            
+            bump_count = await self.add_bump(member.id, member.display_name, guild.id)
+
             embed = discord.Embed(
                 title="🚀 Bump Sayınız Güncellendi!",
-                description=f"{user.mention} yeni bir bump gerçekleştirdi!",
+                description=f"{member.mention} yeni bir bump gerçekleştirdi!",
                 color=discord.Color.green()
             )
-            
+
             embed.add_field(
                 name="Toplam Bump Sayısı",
                 value=f"**{bump_count}** kez bump yapmış!",
                 inline=False
             )
-            
-            embed.set_thumbnail(url=user.display_avatar.url)
-            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
-            
-            await interaction.followup.send(embed=embed)
-            
+
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
+
+            await message.channel.send(embed=embed)
+
             # Kurucu arka arkaya 2 bump kontrolü ve uyarı
             try:
-                await self.check_consecutive_founder_bumps_and_notify(interaction.guild, user)
+                await self.check_consecutive_founder_bumps_and_notify(guild, member)
             except Exception:
                 pass
 
         except Exception as e:
-            print(f"Bump kaydetme hatası: {e}")
-            await interaction.followup.send("Bump işlemi sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.", ephemeral=True)
-    
+            print(f"Otomatik bump kaydetme hatası: {e}")
+
     @app_commands.command(
         name="bump-log", 
         description="Yetkililerin bump komutunu kullanma istatistiklerini gösterir"
