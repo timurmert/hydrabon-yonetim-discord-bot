@@ -24,13 +24,14 @@ YK_QUESTIONS = [
     "Yönetim Kurulu'na neden katılmak istiyorsun? Bu rolde neyi değiştirmek, geliştirmek veya güçlendirmek istiyorsun?",
     "Mazeret, yoğunluk veya aktif olamayacağın bir durum olduğunda bunu mümkün olan en kısa sürede yönetime bildirebilir misin?",
     "HydRaboN sence önümüzdeki dönemde hangi alanda daha fazla gelişmeli veya ne gibi yenilikler yapmalı? Bu gelişim için senin fikrin ne olurdu?",
-    "WhatsApp gruplarındaki ve Discord yönetim kanallarındaki bilgi akışını düzenli olarak takip edip, olaylara ve gündeme hızlı reaksiyon gösterebilir misin?",
+    "WhatsApp grubundaki ve Discord yönetim kanallarındaki bilgi akışını düzenli olarak takip edip, olaylara ve gündeme hızlı reaksiyon gösterebilir misin?",
     "Yetkili kadrosunda bulunan ekip arkadaşlarına yol gösterme, destek olma ve motive etme konusunda sorumluluk alabilir misin?",
     "Yeni yetkililerin ekibe kazandırılması, mevcut yetkililerin ise ekip içinde daha bağlı, sıcak ve desteklenmiş hissetmesi için aktif rol alabilir misin?",
     "Yönetim Kurulu içerisinde yetki ve imkânların artmasıyla birlikte sorumluluğun da ciddi şekilde artacağının farkında olup, bunun için gerekli olan zamanı ayırıp bu sorumluluğu üstleneceğini kabul ediyor musun?",
     "Sana doğrudan görev verilmediği zamanlarda da inisiyatif alarak HydRaboN'a katkı sağlayacak yeni fikirler, çalışmalar veya geliştirmeler üretmeye istekli misin?",
     "Planlı ya da ani gelişen toplantılara, geçerli bir mazeretin olmadığı sürece katılım sağlayacağını; aksi durumun yönetim sorumluluğunun yerine getirilmemesi olarak değerlendirilebileceğini kabul ediyor musun?",
-    "Yönetim Kurulu içerisinde paylaşılan bilgiler, yaşanan iç meseleler, ekip içinde alınan kararlar ve yapılan planlamaların kesinlikle Yönetim Kurulu dışına çıkarılmaması gerektiğinin; aksi durumda sürecin sunucudan yasaklanmaya kadar uzanabilecek ciddi yaptırımlar doğurabileceğinin farkında olup, bu kurala bağlı kalacağını kabul ve taahhüt ediyor musun?"
+    "Yönetim Kurulu içerisinde paylaşılan bilgiler, yaşanan iç meseleler, ekip içinde alınan kararlar ve yapılan planlamaların kesinlikle Yönetim Kurulu dışına çıkarılmaması gerektiğinin; aksi durumda sürecin sunucudan yasaklanmaya kadar uzanabilecek ciddi yaptırımlar doğurabileceğinin farkında olup, bu kurala bağlı kalacağını kabul ve taahhüt ediyor musun?",
+    "WhatsApp grubuna almamız için telefon numaranızı yazınız. (Gruba alınma harici herhangi bir yerde paylaşım ya da kullanım olmayacaktır.)"
 ]
 
 # Sabitler
