@@ -575,7 +575,7 @@ async def setup_yk_application(interaction: discord.Interaction):
             "💫 **Başvuru Koşulları:**\n"
             "• Başvuru yapabilmek için **Admin** rolünde olmanız gerekmektedir.\n"
             "• Admin rolünde en az **14 gün** görev yapmış olmanız gerekmektedir.\n"
-            "• **En az 16 yaşını doldurmuş** olmanız gerekmektedir."
+            "• **En az 16 yaşını doldurmuş** olmanız gerekmektedir.\n\n"
             f"📋 **Başvuru Süreci:**\n"
             f"• Tüm sorulara dürüst ve detaylı cevaplar vermeniz beklenmektedir.\n"
             f"• Başvurunuz detaylıca incelenecek ve size geri dönüş yapılacaktır.\n\n"
