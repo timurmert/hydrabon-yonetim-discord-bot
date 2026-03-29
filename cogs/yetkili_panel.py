@@ -438,6 +438,28 @@ class YetkiliPanelView(discord.ui.View):
         view = KullaniciNotlariView(self.cog, self.user)
         await view.show_notes_panel(interaction)
 
+    @discord.ui.button(label="Kullanıcı İşlemleri", style=discord.ButtonStyle.blurple, emoji="🔨", row=2)
+    async def kullanici_islemleri_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Kullanıcı işlemleri butonuna tıklandığında (ban/kick/timeout)"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
+
+        view = KullaniciIslemleriView(self.cog, self.user)
+        embed = discord.Embed(
+            title="🔨 Kullanıcı İşlemleri",
+            description=(
+                "Kullanıcı işlemleri menüsüne hoş geldiniz.\n\n"
+                "Aşağıdaki butonlardan yapmak istediğiniz işlemi seçin.\n"
+                "Her işlem için kullanıcının **Discord ID**'sini girmeniz gerekecektir."
+            ),
+            color=0x3498db
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     @discord.ui.button(label="YK Başvurular", style=discord.ButtonStyle.blurple, emoji="💫", row=2)
     async def yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """YK başvurular butonuna tıklandığında (sadece Kurucu)"""
@@ -1182,6 +1204,352 @@ class YKBasvuruDetayView(discord.ui.View):
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
+
+
+# ==================== KULLANICI İŞLEMLERİ PANEL BÖLÜMLERİ ====================
+
+class KullaniciIslemleriView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="Yasaklama (Ban)", style=discord.ButtonStyle.danger, emoji="🔨", row=0)
+    async def ban_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciBanModal(self.cog, self.user))
+
+    @discord.ui.button(label="Atma (Kick)", style=discord.ButtonStyle.danger, emoji="👢", row=0)
+    async def kick_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciKickModal(self.cog, self.user))
+
+    @discord.ui.button(label="Zaman Aşımı (Timeout)", style=discord.ButtonStyle.secondary, emoji="⏰", row=0)
+    async def timeout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciTimeoutModal(self.cog, self.user))
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class KullaniciBanModal(discord.ui.Modal, title="Kullanıcı Yasaklama (Ban)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Yasaklanacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sebep = discord.ui.TextInput(
+            label="Yasaklama Sebebi",
+            placeholder="Yasaklama sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        # Kendini yasaklama kontrolü
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinizi yasaklayamazsınız.", ephemeral=True)
+
+        # Bot kontrolü (herhangi bir bot)
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        # Yetkili kadrosu kontrolü
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden yasaklama işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        # Rol hiyerarşisi kontrolü
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıyı yasaklayamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıyı yasaklama yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        try:
+            await guild.ban(member, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="🔨 Kullanıcı Yasaklandı",
+                description=f"{member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıyı yasaklamak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Yasaklama sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+
+class KullaniciKickModal(discord.ui.Modal, title="Kullanıcı Atma (Kick)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Atılacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sebep = discord.ui.TextInput(
+            label="Atma Sebebi",
+            placeholder="Atma sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinizi atamazsınız.", ephemeral=True)
+
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden atma işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıyı atamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıyı atma yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        try:
+            await guild.kick(member, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="👢 Kullanıcı Atıldı",
+                description=f"{member.mention} (`{member.name}`) sunucudan atıldı.",
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) sunucudan atıldı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıyı atmak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Atma sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+
+class KullaniciTimeoutModal(discord.ui.Modal, title="Kullanıcı Zaman Aşımı (Timeout)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Zaman aşımı uygulanacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sure = discord.ui.TextInput(
+            label="Süre (dakika)",
+            placeholder="Zaman aşımı süresi (dakika cinsinden, örn: 10, 60, 1440)",
+            required=True
+        )
+        self.add_item(self.sure)
+
+        self.sebep = discord.ui.TextInput(
+            label="Zaman Aşımı Sebebi",
+            placeholder="Zaman aşımı sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        try:
+            minutes = int(self.sure.value)
+            if minutes < 1 or minutes > 40320:  # Max 28 gün (Discord limiti)
+                return await interaction.response.send_message(
+                    "Zaman aşımı süresi 1 dakika ile 40320 dakika (28 gün) arasında olmalıdır.",
+                    ephemeral=True
+                )
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz süre formatı. Lütfen dakika cinsinden sayısal bir değer girin.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinize zaman aşımı uygulayamazsınız.", ephemeral=True)
+
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden zaman aşımı işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıya zaman aşımı uygulayamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıya zaman aşımı uygulama yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        # Süre formatlama
+        if minutes >= 1440:
+            sure_text = f"{minutes // 1440} gün {minutes % 1440 // 60} saat"
+        elif minutes >= 60:
+            sure_text = f"{minutes // 60} saat {minutes % 60} dakika"
+        else:
+            sure_text = f"{minutes} dakika"
+
+        try:
+            timeout_duration = datetime.timedelta(minutes=minutes)
+
+            await member.timeout(timeout_duration, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="⏰ Kullanıcıya Zaman Aşımı Uygulandı",
+                description=f"{member.mention} (`{member.name}`) kullanıcısına zaman aşımı uygulandı.",
+                color=discord.Color.gold(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="⏱️ Süre", value=sure_text, inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) kullanıcısına **{sure_text}** zaman aşımı uygulandı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıya zaman aşımı uygulamak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Zaman aşımı sırasında bir hata oluştu: {str(e)}", ephemeral=True)
 
 
 class YetkiliDuyuruView(discord.ui.View):

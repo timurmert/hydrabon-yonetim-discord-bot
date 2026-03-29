@@ -1047,35 +1047,109 @@ class ExtraFeatures(commands.Cog):
     
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        """Kanal silindiğinde çalışır"""
+        """Kanal silindiğinde çalışır — koruma sistemi"""
+        guild = channel.guild
+
+        # Muaf kategori kontrolü — bu kategorideki kanallar silinebilir
+        EXEMPT_CATEGORY_ID = 1067552184423694466
+        if channel.category_id == EXEMPT_CATEGORY_ID:
+            return
+
         # Denetim kaydını kontrol edip kanalı kimin sildiğini bul
+        deleter = None
         try:
-            async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
+            async for entry in guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
                 deleter = entry.user
                 break
         except discord.Forbidden:
-            pass
-            return
-        
-        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
-        if deleter:
-            # Eğer kanalı silen kişi bir bot değilse
-            if not deleter.bot:
-                # Kullanıcının tüm rollerini kaldır
-                for role in deleter.roles[1:]:  # @everyone rolünü dışarıda bırak
-                    try:
-                        await deleter.remove_roles(role, reason="Kanal silme nedeniyle roller kaldırıldı")
-                    except discord.Forbidden:
-                        pass
-                    except discord.HTTPException as e:
-                        print(f"{role.name} rolünü kaldırırken bir hata oluştu: {e}")
+        if not deleter:
+            return
 
-                # Admin'e durumu bildir
-                admin_user = self.bot.get_user(315888596437696522)
-                if admin_user:
-                    await admin_user.send(f"{deleter.mention} adlı kullanıcı bir kanal sildi ve tüm rolleri kaldırıldı!")
+        # Bot hesaplarına dokunma
+        if deleter.bot:
+            return
+
+        # Member nesnesini al (audit log user nesnesi eksik olabilir)
+        member = guild.get_member(deleter.id)
+        if not member:
+            return
+
+        # Kanal türü belirleme
+        channel_type_text = "Metin Kanalı"
+        if isinstance(channel, discord.VoiceChannel):
+            channel_type_text = "Ses Kanalı"
+        elif isinstance(channel, discord.CategoryChannel):
+            channel_type_text = "Kategori"
+        elif isinstance(channel, discord.StageChannel):
+            channel_type_text = "Sahne Kanalı"
+        elif isinstance(channel, discord.ForumChannel):
+            channel_type_text = "Forum Kanalı"
+
+        # 1. Öncelik: Tüm rolleri kaldır
+        removed_roles = []
+        for role in member.roles[1:]:  # @everyone hariç
+            try:
+                await member.remove_roles(role, reason="Kanal silme koruması — tüm roller kaldırıldı")
+                removed_roles.append(role.name)
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException as e:
+                print(f"Kanal silme koruması — {role.name} rolünü kaldırırken hata: {e}")
+
+        # 2. 7 gün zaman aşımı uygula
+        timeout_applied = False
+        try:
+            await member.timeout(datetime.timedelta(days=7), reason="Kanal silme koruması — 7 gün zaman aşımı")
+            timeout_applied = True
+        except discord.Forbidden:
+            print(f"Kanal silme koruması — {member.name} kullanıcısına timeout uygulanamadı (yetki yetersiz)")
+        except discord.HTTPException as e:
+            print(f"Kanal silme koruması — timeout hatası: {e}")
+
+        # 3. yk-sohbet kanalına bilgi gönder
+        YK_SOHBET_CHANNEL_ID = 1362825668965957845
+        log_channel = guild.get_channel(YK_SOHBET_CHANNEL_ID)
+        if log_channel:
+            now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+
+            embed = discord.Embed(
+                title="🚨 Kanal Silme Koruması Tetiklendi",
+                description=f"Bir kullanıcı izinsiz kanal sildi. Otomatik yaptırımlar uygulandı.",
+                color=discord.Color.red(),
+                timestamp=now
+            )
+            embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (`{member.name}` — ID: {member.id})", inline=False)
+            embed.add_field(name="📺 Silinen Kanal", value=f"**{channel.name}** (ID: {channel.id})", inline=True)
+            embed.add_field(name="📁 Kanal Türü", value=channel_type_text, inline=True)
+            if channel.category:
+                embed.add_field(name="📂 Kategori", value=channel.category.name, inline=True)
+            embed.add_field(name="🕐 Saat", value=now.strftime("%d.%m.%Y %H:%M:%S"), inline=False)
+
+            # Uygulanan yaptırımlar
+            yaptirimlar = []
+            if removed_roles:
+                yaptirimlar.append(f"✅ **{len(removed_roles)}** rol kaldırıldı")
+            else:
+                yaptirimlar.append("❌ Rol kaldırılamadı")
+            if timeout_applied:
+                yaptirimlar.append("✅ 7 gün zaman aşımı uygulandı")
+            else:
+                yaptirimlar.append("❌ Zaman aşımı uygulanamadı")
+
+            embed.add_field(name="⚡ Uygulanan Yaptırımlar", value="\n".join(yaptirimlar), inline=False)
+
+            if removed_roles:
+                roles_text = ", ".join(removed_roles)
+                if len(roles_text) > 1024:
+                    roles_text = roles_text[:1000] + "..."
+                embed.add_field(name="🏷️ Kaldırılan Roller", value=roles_text, inline=False)
+
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"{guild.name} • Kanal Silme Koruması", icon_url=guild.icon.url if guild.icon else None)
+
+            await log_channel.send(embed=embed)
     
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role):
