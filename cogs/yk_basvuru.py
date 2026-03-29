@@ -8,10 +8,6 @@ from database import get_db
 import pytz
 turkey_tz = pytz.timezone('Europe/Istanbul')
 
-# Sabitler
-FORM_QUESTION_COUNT = 11
-MIN_ADMIN_DAYS = 14
-
 # Rol ID'leri
 ADMIN_ROLE_ID = 1163918130192580608
 KURUCU_ROLE_ID = 1029089723110674463
@@ -37,6 +33,9 @@ YK_QUESTIONS = [
     "Yönetim Kurulu içerisinde paylaşılan bilgiler, yaşanan iç meseleler, ekip içinde alınan kararlar ve yapılan planlamaların kesinlikle Yönetim Kurulu dışına çıkarılmaması gerektiğinin; aksi durumda sürecin sunucudan yasaklanmaya kadar uzanabilecek ciddi yaptırımlar doğurabileceğinin farkında olup, bu kurala bağlı kalacağını kabul ve taahhüt ediyor musun?"
 ]
 
+# Sabitler
+FORM_QUESTION_COUNT = len(YK_QUESTIONS)
+MIN_ADMIN_DAYS = 14
 
 class YKBasvuru(commands.Cog):
     def __init__(self, bot):
