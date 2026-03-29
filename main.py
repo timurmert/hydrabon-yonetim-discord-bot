@@ -520,7 +520,7 @@ async def setup_yk_application(interaction: discord.Interaction):
     KURUCU_ROLE_ID = 1029089723110674463
 
     # YK Başvuru kategorisi oluşturma
-    category_name = "YÖNETİM KURULU BAŞVURU"
+    category_name = "YÖNETİM"
     existing_category = discord.utils.get(guild.categories, name=category_name)
 
     if existing_category:
