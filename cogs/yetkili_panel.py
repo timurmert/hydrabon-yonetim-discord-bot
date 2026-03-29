@@ -354,60 +354,6 @@ class YetkiliPanelView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="İstatistikler", style=discord.ButtonStyle.blurple, emoji="📊", row=0)
-    async def istatistikler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """İstatistikler butonuna tıklandığında"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # İstatistikleri getir
-        await self.cog.show_stats(interaction)
-    
-    @discord.ui.button(label="Bump Logları", style=discord.ButtonStyle.blurple, emoji="📈", row=1)
-    async def bump_log_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bump logları butonuna tıklandığında"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Moderatör veya daha üstü rol kontrolü
-        if not user_has_moderator_permission(interaction.user):
-            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
-
-        # BumpTracker cog'unu al
-        bump_tracker = interaction.client.get_cog("BumpTracker")
-        
-        if bump_tracker is None:
-            embed = discord.Embed(
-                title="⚠️ Hata",
-                description="Bump Tracker modülü bulunamadı veya yüklenmemiş!",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
-        # Bump istatistikleri embedini oluştur
-        embed = discord.Embed(
-            title="📊 Bump İstatistikleri",
-            description=(
-                "Yetkililerin bump komutunu kullanma istatistiklerini görüntülemek için "
-                "aşağıdaki butonlardan birini seçebilirsiniz.\n\n"
-                "**Günlük**: Son 24 saat içindeki bump istatistikleri\n"
-                "**Haftalık**: Son 7 gün içindeki bump istatistikleri\n"
-                "**2 Haftalık**: Son 14 gün içindeki bump istatistikleri\n"
-                "**Aylık**: Son 30 gün içindeki bump istatistikleri"
-            ),
-            color=discord.Color.blue()
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
-        # Bump log view'ını oluştur
-        view = BumpLogView(bump_tracker, interaction.user)
-        
-        # Mevcut mesajı güncelle
-        await interaction.response.edit_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
-    
     @discord.ui.button(label="Otomatik Mesajlar", style=discord.ButtonStyle.blurple, emoji="⏱️", row=1)
     async def otomatik_mesajlar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Otomatik mesajlar butonuna tıklandığında"""
@@ -442,6 +388,14 @@ class YetkiliPanelView(discord.ui.View):
         # Sistem durumu view'ını göster
         view = SistemDurumuView(self.cog, self.user)
         await view.show_system_status(interaction)
+
+    @discord.ui.button(label="İstatistikler", style=discord.ButtonStyle.blurple, emoji="📊", row=1)
+    async def istatistikler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """İstatistikler butonuna tıklandığında"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        await self.cog.show_stats(interaction)
 
     @discord.ui.button(label="Kullanıcı Notları", style=discord.ButtonStyle.blurple, emoji="📝", row=2)
     async def kullanici_notlari_button(self, interaction: discord.Interaction, button: discord.ui.Button):
