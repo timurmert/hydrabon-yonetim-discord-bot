@@ -315,7 +315,26 @@ class YetkiliPanelView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
-    
+
+    @discord.ui.button(label="YK Başvurular", style=discord.ButtonStyle.blurple, emoji="💫", row=0)
+    async def yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """YK başvurular butonuna tıklandığında (sadece Kurucu)"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # Sadece KURUCU rolü kontrolü
+        if not any(role.id == YETKILI_ROLLERI["KURUCU"] for role in interaction.user.roles):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Kurucu"), view=self)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     @discord.ui.button(label="Yetkili Duyuru", style=discord.ButtonStyle.blurple, emoji="📢", row=0)
     async def yetkili_duyuru_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Yetkili duyuru butonuna tıklandığında"""
@@ -456,25 +475,6 @@ class YetkiliPanelView(discord.ui.View):
                 "Her işlem için kullanıcının **Discord ID**'sini girmeniz gerekecektir."
             ),
             color=0x3498db
-        )
-        await interaction.response.edit_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
-
-    @discord.ui.button(label="YK Başvurular", style=discord.ButtonStyle.blurple, emoji="💫", row=2)
-    async def yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """YK başvurular butonuna tıklandığında (sadece Kurucu)"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-
-        # Sadece KURUCU rolü kontrolü
-        if not any(role.id == YETKILI_ROLLERI["KURUCU"] for role in interaction.user.roles):
-            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Kurucu"), view=self)
-
-        view = YKBasvurularView(self.cog, self.user)
-        embed = discord.Embed(
-            title="💫 YK Başvurular",
-            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
-            color=0xFFD700
         )
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
