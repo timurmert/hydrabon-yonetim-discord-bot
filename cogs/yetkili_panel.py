@@ -438,6 +438,25 @@ class YetkiliPanelView(discord.ui.View):
         view = KullaniciNotlariView(self.cog, self.user)
         await view.show_notes_panel(interaction)
 
+    @discord.ui.button(label="YK Başvurular", style=discord.ButtonStyle.blurple, emoji="💫", row=2)
+    async def yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """YK başvurular butonuna tıklandığında (sadece Kurucu)"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # Sadece KURUCU rolü kontrolü
+        if not any(role.id == YETKILI_ROLLERI["KURUCU"] for role in interaction.user.roles):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Kurucu"), view=self)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     async def show_stats(self, interaction: discord.Interaction):
         """Sunucu istatistiklerini gösterir"""
         guild = interaction.guild
@@ -901,6 +920,269 @@ class BasvuruDetayView(discord.ui.View):
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
+
+# ==================== YK BAŞVURULAR PANEL BÖLÜMLERİ ====================
+
+class YKBasvurularView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="YK Başvuru Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=0)
+    async def yk_basvuru_ara_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(YKBasvuruAraModal(self.cog, self.user))
+
+    @discord.ui.button(label="Son YK Başvuruları Göster", style=discord.ButtonStyle.blurple, emoji="📋", row=0)
+    async def son_yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        try:
+            db = await get_db()
+            applications = await db.get_all_yk_applications()
+
+            if not applications:
+                embed = discord.Embed(
+                    title="💫 YK Başvurular",
+                    description="Henüz hiç YK başvurusu bulunmuyor.",
+                    color=0xFFD700
+                )
+                return await interaction.response.edit_message(embed=embed, view=self)
+
+            applications = applications[:10]
+
+            embed = discord.Embed(
+                title="💫 Son YK Başvuruları",
+                description=f"Sistemde kayıtlı son {len(applications)} YK başvurusunun özeti",
+                color=0xFFD700
+            )
+
+            for app in applications:
+                user_id = app['user_id']
+                member = interaction.guild.get_member(user_id)
+
+                status_emojis = {
+                    "pending": "⏳",
+                    "approved": "✅",
+                    "rejected": "❌",
+                    "cancelled": "⛔"
+                }
+
+                status_emoji = status_emojis.get(app['status'], "❓")
+                user_mention = member.mention if member else f"<@{user_id}>"
+
+                embed.add_field(
+                    name=f"{status_emoji} YK Başvuru #{app['id']}",
+                    value=(
+                        f"**Kullanıcı:** {user_mention}\n"
+                        f"**Tarih:** {app['application_date'].split('T')[0]}\n"
+                        f"**ID:** `{app['id']}`"
+                    ),
+                    inline=True
+                )
+
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+            view = YKBasvurularListeView(self.cog, self.user)
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+
+        except Exception as e:
+            await interaction.response.send_message(f"YK başvurularını getirirken bir hata oluştu: {str(e)}", ephemeral=True)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class YKBasvurularListeView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=0)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class YKBasvuruAraModal(discord.ui.Modal, title="YK Başvuru Arama"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+        self.basvuru_id = discord.ui.TextInput(
+            label="Başvuru ID veya Kullanıcı ID",
+            placeholder="Aramak istediğiniz YK başvurusunun ID'sini veya kullanıcı ID'sini girin",
+            required=True
+        )
+        self.add_item(self.basvuru_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            id_value = self.basvuru_id.value
+            db = await get_db()
+
+            try:
+                id_int = int(id_value)
+
+                # Önce başvuru ID'sine göre ara
+                application = None
+                try:
+                    all_apps = await db.get_all_yk_applications()
+                    for app in all_apps:
+                        if app['id'] == id_int:
+                            application = app
+                            break
+                except:
+                    pass
+
+                # Bulunamadıysa kullanıcı ID'sine göre ara
+                if not application:
+                    application = await db.get_yk_application_by_user_id(id_int)
+            except ValueError:
+                await interaction.response.send_message("Geçersiz ID formatı. Lütfen geçerli bir ID girin.", ephemeral=True)
+                return
+
+            if not application:
+                await interaction.response.send_message(f"Belirtilen ID'ye sahip bir YK başvurusu bulunamadı: {id_value}", ephemeral=True)
+                return
+
+            await self.show_yk_application_details(interaction, application)
+
+        except Exception as e:
+            await interaction.response.send_message(f"YK başvuru aranırken bir hata oluştu: {str(e)}", ephemeral=True)
+
+    async def show_yk_application_details(self, interaction, application):
+        guild = interaction.guild
+        user_id = application['user_id']
+        member = guild.get_member(user_id)
+
+        embed = discord.Embed(
+            title=f"💫 YK Başvuru #{application['id']}",
+            description=f"**Başvuru Tarihi:** {application['application_date'].split('T')[0]}",
+            color=0xFFD700
+        )
+
+        embed.add_field(
+            name="👤 Kullanıcı Bilgileri",
+            value=(
+                f"**ID:** {user_id}\n"
+                f"**Kullanıcı:** {member.mention if member else application['username']}"
+            ),
+            inline=False
+        )
+
+        status_emoji = {
+            "pending": "⏳ Beklemede",
+            "approved": "✅ Onaylandı",
+            "rejected": "❌ Reddedildi",
+            "cancelled": "⛔ İptal Edildi"
+        }
+
+        embed.add_field(
+            name="📊 Durum",
+            value=status_emoji.get(application['status'], "Bilinmiyor"),
+            inline=False
+        )
+
+        # Cevapları ekle (11 soru olduğu için 2 embed gerekebilir ama panel'de kısa tutuyoruz)
+        embed.add_field(name="📋 Form Cevapları", value="", inline=False)
+
+        for i, (question, answer) in enumerate(application['answers'].items()):
+            # Soru metnini kısalt (panel görünümünde)
+            short_q = question[:100] + "..." if len(question) > 100 else question
+            embed.add_field(name=f"Soru {i+1}", value=f"**{short_q}**\n{answer[:500]}", inline=False)
+
+        # İnceleme bilgisi
+        if application['reviewer_id']:
+            reviewer = guild.get_member(application['reviewer_id'])
+            reviewer_mention = reviewer.mention if reviewer else f"ID: {application['reviewer_id']}"
+
+            embed.add_field(
+                name="🔍 İnceleme Bilgileri",
+                value=(
+                    f"**İnceleyen:** {reviewer_mention}\n"
+                    f"**İnceleme Tarihi:** {application['review_date']}\n"
+                    f"**Mesaj:** {application['review_message']}"
+                ),
+                inline=False
+            )
+
+        if member and member.avatar:
+            embed.set_thumbnail(url=member.display_avatar.url)
+
+        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+        view = YKBasvuruDetayView(self.cog, self.user)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class YKBasvuruDetayView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+
+    @discord.ui.button(label="YK Başvurular Menüsüne Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=0)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    @discord.ui.button(label="Ana Menüye Dön", style=discord.ButtonStyle.green, emoji="🏠", row=0)
+    async def ana_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
 
 class YetkiliDuyuruView(discord.ui.View):
     def __init__(self, cog, user):

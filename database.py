@@ -53,7 +53,22 @@ class Database:
                 assigned_role_name TEXT
             )
             ''')
-            
+
+            # YK (Yönetim Kurulu) başvuruları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS yk_applications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                application_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                answers TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                reviewer_id INTEGER,
+                review_date TIMESTAMP,
+                review_message TEXT
+            )
+            ''')
+
             # Otomatik mesajlar tablosu
             await cursor.execute('''
             CREATE TABLE IF NOT EXISTS scheduled_messages (
@@ -575,7 +590,84 @@ class Database:
                 applications.append(application)
             
             return applications
-            
+
+    # ==================== YK BAŞVURU METODLARI ====================
+
+    async def save_yk_application(self, user_id, username, answers):
+        """YK başvurusunu veritabanına kaydeder"""
+        answers_json = json.dumps(answers, ensure_ascii=False)
+
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO yk_applications (user_id, username, answers, application_date)
+            VALUES (?, ?, ?, ?)
+            ''', (user_id, username, answers_json, datetime.now(timezone.utc).isoformat()))
+
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def update_yk_application_status(self, application_id, status, reviewer_id=None, review_message=None):
+        """YK başvurusunun durumunu günceller"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                UPDATE yk_applications
+                SET status = ?,
+                    reviewer_id = ?,
+                    review_date = ?,
+                    review_message = ?
+                WHERE id = ?
+                ''', (status, reviewer_id, datetime.now(timezone.utc).isoformat(), review_message, application_id))
+
+                await self.connection.commit()
+                return True
+        except Exception as e:
+            print(f"YK başvuru güncelleme hatası: {e}")
+            return False
+
+    async def get_yk_application_by_user_id(self, user_id):
+        """Kullanıcının en son YK başvurusunu getirir"""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT * FROM yk_applications
+            WHERE user_id = ?
+            ORDER BY application_date DESC
+            LIMIT 1
+            ''', (user_id,))
+
+            row = await cursor.fetchone()
+
+            if row:
+                application = dict(row)
+                application['answers'] = json.loads(application['answers'])
+                return application
+            return None
+
+    async def get_all_yk_applications(self, status=None):
+        """Tüm YK başvurularını getirir"""
+        async with self.connection.cursor() as cursor:
+            if status:
+                await cursor.execute('''
+                SELECT * FROM yk_applications
+                WHERE status = ?
+                ORDER BY application_date DESC
+                ''', (status,))
+            else:
+                await cursor.execute('''
+                SELECT * FROM yk_applications
+                ORDER BY application_date DESC
+                ''')
+
+            rows = await cursor.fetchall()
+
+            applications = []
+            for row in rows:
+                application = dict(row)
+                application['answers'] = json.loads(application['answers'])
+                applications.append(application)
+
+            return applications
+
     async def add_bump_log(self, user_id, username, guild_id):
         """Yeni bump kaydını veritabanına ekler ve özet tablosunu günceller
         

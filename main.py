@@ -36,6 +36,20 @@ class PersistentView(discord.ui.View):
         # Buton işlemi yetkili_alim cog'unda yapılacak
         pass
 
+class YKPersistentView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label="Başvur",
+        custom_id="yk_apply_button",
+        emoji="💫"
+    )
+    async def yk_apply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Buton işlemi yk_basvuru cog'unda yapılacak
+        pass
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Bot hazır olduğunda çalışacak fonksiyon
@@ -58,6 +72,7 @@ async def on_ready():
     # Kalıcı görünümleri ekleme
     print("🔄 Kalıcı görünümler ekleniyor...")
     bot.add_view(PersistentView())
+    bot.add_view(YKPersistentView())
     print("✅ Kalıcı görünümler eklendi!")
     
     # Slash komutlarını global olarak senkronize et
@@ -347,7 +362,8 @@ async def load_extensions():
         'cogs.weekly_reports', # Haftalık rapor sistemi
         'cogs.system_monitor', # Sistem izleme ve uyarı modülü
         'cogs.rozet_2025',     # 2025 Yılbaşı Rozet sistemi
-        'cogs.tag_tracker'     # Clan tag takip sistemi
+        'cogs.tag_tracker',    # Clan tag takip sistemi
+        'cogs.yk_basvuru'      # YK başvuru sistemi
     ]
     
     successful_loads = 0
@@ -490,6 +506,111 @@ async def setup_staff_application(interaction: discord.Interaction):
         kurulum_tamamlandi_embed.set_thumbnail(url=guild.icon.url)
     
     await interaction.followup.send(embed=kurulum_tamamlandi_embed, ephemeral=True)
+
+# YK Başvuru sistemini kurma komutu
+@admin_group.command(name="yk-basvuru-kur", description="Yönetim Kurulu başvuru sistemini kurar")
+@app_commands.default_permissions(administrator=True)
+async def setup_yk_application(interaction: discord.Interaction):
+    # Kullanıcı ID kontrolü
+    if interaction.user.id != 315888596437696522:
+        await interaction.response.send_message("Bu komutu kullanma yetkiniz bulunmamaktadır.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    KURUCU_ROLE_ID = 1029089723110674463
+
+    # YK Başvuru kategorisi oluşturma
+    category_name = "YÖNETİM KURULU BAŞVURU"
+    existing_category = discord.utils.get(guild.categories, name=category_name)
+
+    if existing_category:
+        category = existing_category
+        await interaction.response.send_message(f"`{category_name}` kategorisi zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        category = await guild.create_category(category_name)
+        await interaction.response.send_message(f"`{category_name}` kategorisi oluşturuldu.", ephemeral=True)
+
+    # YK başvuru kanalı oluşturma (herkes görebilir ama yazamaz)
+    application_channel_name = "💫┃yk-başvuru"
+    existing_channel = discord.utils.get(guild.text_channels, name=application_channel_name)
+
+    if existing_channel:
+        application_channel = existing_channel
+        await interaction.followup.send(f"`{application_channel_name}` kanalı zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        application_channel = await guild.create_text_channel(application_channel_name, category=category, overwrites=overwrites)
+        await interaction.followup.send(f"`{application_channel_name}` kanalı oluşturuldu.", ephemeral=True)
+
+    # YK başvurular kanalı oluşturma (sadece Kurucu rolü görebilir)
+    submissions_channel_name = "💫┃yk-başvurular"
+    existing_submissions = discord.utils.get(guild.text_channels, name=submissions_channel_name)
+
+    if existing_submissions:
+        submissions_channel = existing_submissions
+        await interaction.followup.send(f"`{submissions_channel_name}` kanalı zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+
+        # Sadece Kurucu rolü için izin
+        kurucu_role = guild.get_role(KURUCU_ROLE_ID)
+        if kurucu_role:
+            overwrites[kurucu_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        submissions_channel = await guild.create_text_channel(submissions_channel_name, category=category, overwrites=overwrites)
+        await interaction.followup.send(f"`{submissions_channel_name}` kanalı oluşturuldu ve izinleri ayarlandı.", ephemeral=True)
+
+    # YK başvuru kanalına embed gönderme
+    embed = discord.Embed(
+        title="💫 Yönetim Kurulu Başvurusu 💫",
+        description=(
+            "### 📢 HydRaboN Yönetim Kurulu'na Katılmak İster Misiniz?\n\n"
+            "• Yönetim Kurulu, sunucumuzun stratejik kararlarını alan ve yönlendiren en üst birimdir.\n"
+            "• Yönetim Kurulu'na katılmak için aşağıdaki **Başvur** butonuna tıklayarak başvuru formunu doldurun.\n\n"
+            "📋 **Başvuru Koşulları:**\n"
+            "• Başvuru yapabilmek için **Admin** rolüne sahip olmanız gerekmektedir.\n"
+            "• Admin rolünde en az **14 gün** görev yapmış olmanız gerekmektedir.\n\n"
+            f"📋 **Başvuru Süreci:**\n"
+            f"• Form toplam **11** sorudan oluşmaktadır.\n"
+            f"• Tüm sorulara dürüst ve detaylı cevaplar vermeniz önemlidir.\n"
+            f"• Başvurunuz Kurucu tarafından incelenecek ve size geri dönüş yapılacaktır.\n\n"
+            f"✨ **İyi Şanslar!** ✨"
+        ),
+        color=0xFFD700
+    )
+
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    embed.set_footer(text=f"{guild.name} • Yönetim Kurulu Başvuru Sistemi", icon_url=guild.icon.url if guild.icon else None)
+    embed.timestamp = datetime.datetime.now(turkey_tz)
+
+    view = YKPersistentView()
+    await application_channel.send(embed=embed, view=view)
+    await interaction.followup.send("YK başvuru butonu kanalına gönderildi.", ephemeral=True)
+
+    # Kurulum tamamlandı mesajı
+    kurulum_embed = discord.Embed(
+        title="💫 YK Başvuru Sistemi Kurulumu Tamamlandı",
+        description=(
+            "Yönetim Kurulu başvuru sistemi başarıyla kuruldu!\n\n"
+            f"📌 **Başvuru Kanalı:** {application_channel.mention}\n"
+            f"📌 **Başvurular Kanalı:** {submissions_channel.mention}\n\n"
+            "⚠️ **Önemli:** `cogs/yk_basvuru.py` dosyasındaki kanal ID sabitlerini güncellemeyi unutmayın!"
+        ),
+        color=0xFFD700
+    )
+
+    if guild.icon:
+        kurulum_embed.set_thumbnail(url=guild.icon.url)
+
+    await interaction.followup.send(embed=kurulum_embed, ephemeral=True)
 
 # Sunucu log kanalı kurma komutu
 @admin_group.command(name="sunuculog-kur", description="Sunucu log kanalını kurar")
