@@ -1071,9 +1071,12 @@ class ExtraFeatures(commands.Cog):
         if deleter.bot:
             return
 
-        # Member nesnesini al (audit log user nesnesi eksik olabilir)
+        # KURUCU rolüne sahip kişiler muaf
         member = guild.get_member(deleter.id)
         if not member:
+            return
+
+        if any(role.id == self.KURUCU_ROLE_ID for role in member.roles):
             return
 
         # Kanal türü belirleme

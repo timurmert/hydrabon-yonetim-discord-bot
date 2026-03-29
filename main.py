@@ -568,19 +568,18 @@ async def setup_yk_application(interaction: discord.Interaction):
 
     # YK başvuru kanalına embed gönderme
     embed = discord.Embed(
-        title="💫 Yönetim Kurulu Başvurusu 💫",
+        title="📢 HydRaboN Yönetim Kurulu Katılım Başvurusu",
         description=(
-            "### 📢 HydRaboN Yönetim Kurulu'na Katılmak İster Misiniz?\n\n"
             "• Yönetim Kurulu, sunucumuzun stratejik kararlarını alan ve yönlendiren en üst birimdir.\n"
             "• Yönetim Kurulu'na katılmak için aşağıdaki **Başvur** butonuna tıklayarak başvuru formunu doldurun.\n\n"
-            "📋 **Başvuru Koşulları:**\n"
-            "• Başvuru yapabilmek için **Admin** rolüne sahip olmanız gerekmektedir.\n"
-            "• Admin rolünde en az **14 gün** görev yapmış olmanız gerekmektedir.\n\n"
+            "💫 **Başvuru Koşulları:**\n"
+            "• Başvuru yapabilmek için **Admin** rolünde olmanız gerekmektedir.\n"
+            "• Admin rolünde en az **14 gün** görev yapmış olmanız gerekmektedir.\n"
+            "• **En az 16 yaşını doldurmuş** olmanız gerekmektedir."
             f"📋 **Başvuru Süreci:**\n"
-            f"• Form toplam **11** sorudan oluşmaktadır.\n"
-            f"• Tüm sorulara dürüst ve detaylı cevaplar vermeniz önemlidir.\n"
-            f"• Başvurunuz Kurucu tarafından incelenecek ve size geri dönüş yapılacaktır.\n\n"
-            f"✨ **İyi Şanslar!** ✨"
+            f"• Tüm sorulara dürüst ve detaylı cevaplar vermeniz beklenmektedir.\n"
+            f"• Başvurunuz detaylıca incelenecek ve size geri dönüş yapılacaktır.\n\n"
+            f"<:HypeSquad:1202784798993551462> **HydRaboN Yönetim** <:HypeSquad:1202784798993551462>"
         ),
         color=0xFFD700
     )
