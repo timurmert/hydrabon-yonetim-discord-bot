@@ -4804,9 +4804,9 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=yeni_rol_ismi,
                     reason=sebep
                 )
-            except Exception:
-                pass
-            
+            except Exception as e:
+                print(f"Yetki yükseltme DB kayıt hatası: {e}")
+
             # Başarılı işlem bildirimi
             embed = discord.Embed(
                 title="✅ Yetki Yükseltme Başarılı",
@@ -4953,9 +4953,9 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=yeni_rol_ismi,
                     reason=sebep
                 )
-            except Exception:
-                pass
-            
+            except Exception as e:
+                print(f"Yetki düşürme DB kayıt hatası: {e}")
+
             # Başarılı işlem bildirimi
             embed = discord.Embed(
                 title="✅ Yetki Düşürme Başarılı",
@@ -5061,8 +5061,8 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=verilecek_rol.name,
                     reason=sebep
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Yetkili ekleme DB kayıt hatası: {e}")
 
             # ÜYE rolünü kaldır (ID: 1029089740022095973)
             uye_rol = guild.get_role(1029089740022095973)
@@ -5134,8 +5134,8 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=None,
                     reason=sebep
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Yetkili çıkartma DB kayıt hatası: {e}")
             # Üye rolünü ekle
             uye_rol_id = 1029089740022095973
             uye_rol = guild.get_role(uye_rol_id)

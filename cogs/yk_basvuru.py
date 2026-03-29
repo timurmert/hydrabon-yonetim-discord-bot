@@ -633,14 +633,16 @@ class YKApprovalModal(discord.ui.Modal, title="YK Başvurusu Onayı"):
                     ephemeral=True
                 )
 
-            # YK ADAYLARI rolü ata
+            # YK ADAYLARI rolü ata ve Admin rolünü kaldır
             yk_adaylari_role = interaction.guild.get_role(YK_ADAYLARI_ROLE_ID)
+            admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
             if yk_adaylari_role:
                 await self.user.add_roles(yk_adaylari_role)
+            if admin_role and admin_role in self.user.roles:
+                await self.user.remove_roles(admin_role, reason="YK başvurusu onaylandı — Admin rolü kaldırıldı")
 
             # staff_changes'a kayıt (promoted olarak)
             try:
-                admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
                 await db.add_staff_change(
                     guild_id=interaction.guild.id,
                     user_id=self.user.id,
