@@ -53,7 +53,22 @@ class Database:
                 assigned_role_name TEXT
             )
             ''')
-            
+
+            # YK (Yönetim Kurulu) başvuruları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS yk_applications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                application_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                answers TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                reviewer_id INTEGER,
+                review_date TIMESTAMP,
+                review_message TEXT
+            )
+            ''')
+
             # Otomatik mesajlar tablosu
             await cursor.execute('''
             CREATE TABLE IF NOT EXISTS scheduled_messages (
@@ -303,6 +318,99 @@ class Database:
             ON staff_message_stats(guild_id, message_date)
             ''')
             
+            # Özel oda oluşturma logları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS private_room_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP,
+                duration_minutes INTEGER
+            )
+            ''')
+            
+            # Private room logs için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_guild_time
+            ON private_room_logs(guild_id, created_at)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_user
+            ON private_room_logs(user_id, guild_id)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_room_channel
+            ON private_room_logs(channel_id)
+            ''')
+            
+            # Kanal mesaj istatistikleri tablosu (günlük toplu)
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS channel_message_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                category_type TEXT NOT NULL, -- 'sohbet' veya 'eglence'
+                message_date TEXT NOT NULL, -- ISO YYYY-MM-DD (UTC)
+                message_count INTEGER NOT NULL DEFAULT 0,
+                unique_users INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Kanal mesaj istatistikleri için indeksler
+            await cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_msg_unique
+            ON channel_message_stats(guild_id, channel_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_channel_msg_guild_date
+            ON channel_message_stats(guild_id, message_date)
+            ''')
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_channel_msg_category
+            ON channel_message_stats(guild_id, category_type, message_date)
+            ''')
+            
+            # Ses kanalı aktivite session'ları tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS voice_activity_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                channel_name TEXT NOT NULL,
+                session_start TIMESTAMP NOT NULL,
+                session_end TIMESTAMP,
+                total_minutes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Voice activity sessions için indeksler
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_guild_user
+            ON voice_activity_sessions(guild_id, user_id)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_time
+            ON voice_activity_sessions(session_start, session_end)
+            ''')
+            
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_voice_activity_guild_time
+            ON voice_activity_sessions(guild_id, session_start)
+            ''')
+            
             # Migration: Eski bump verilerini yeni tablolara taşı
             await self.migrate_old_bump_data()
             
@@ -482,7 +590,84 @@ class Database:
                 applications.append(application)
             
             return applications
-            
+
+    # ==================== YK BAŞVURU METODLARI ====================
+
+    async def save_yk_application(self, user_id, username, answers):
+        """YK başvurusunu veritabanına kaydeder"""
+        answers_json = json.dumps(answers, ensure_ascii=False)
+
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO yk_applications (user_id, username, answers, application_date)
+            VALUES (?, ?, ?, ?)
+            ''', (user_id, username, answers_json, datetime.now(timezone.utc).isoformat()))
+
+            await self.connection.commit()
+            return cursor.lastrowid
+
+    async def update_yk_application_status(self, application_id, status, reviewer_id=None, review_message=None):
+        """YK başvurusunun durumunu günceller"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                UPDATE yk_applications
+                SET status = ?,
+                    reviewer_id = ?,
+                    review_date = ?,
+                    review_message = ?
+                WHERE id = ?
+                ''', (status, reviewer_id, datetime.now(timezone.utc).isoformat(), review_message, application_id))
+
+                await self.connection.commit()
+                return True
+        except Exception as e:
+            print(f"YK başvuru güncelleme hatası: {e}")
+            return False
+
+    async def get_yk_application_by_user_id(self, user_id):
+        """Kullanıcının en son YK başvurusunu getirir"""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT * FROM yk_applications
+            WHERE user_id = ?
+            ORDER BY application_date DESC
+            LIMIT 1
+            ''', (user_id,))
+
+            row = await cursor.fetchone()
+
+            if row:
+                application = dict(row)
+                application['answers'] = json.loads(application['answers'])
+                return application
+            return None
+
+    async def get_all_yk_applications(self, status=None):
+        """Tüm YK başvurularını getirir"""
+        async with self.connection.cursor() as cursor:
+            if status:
+                await cursor.execute('''
+                SELECT * FROM yk_applications
+                WHERE status = ?
+                ORDER BY application_date DESC
+                ''', (status,))
+            else:
+                await cursor.execute('''
+                SELECT * FROM yk_applications
+                ORDER BY application_date DESC
+                ''')
+
+            rows = await cursor.fetchall()
+
+            applications = []
+            for row in rows:
+                application = dict(row)
+                application['answers'] = json.loads(application['answers'])
+                applications.append(application)
+
+            return applications
+
     async def add_bump_log(self, user_id, username, guild_id):
         """Yeni bump kaydını veritabanına ekler ve özet tablosunu günceller
         
@@ -1334,6 +1519,34 @@ class Database:
                 })
             return changes
 
+    async def get_staff_current_role_dates(self, guild_id: int):
+        """Her yetkilinin mevcut rolüne atandığı tarihi döndürür.
+
+        Returns:
+            dict: {user_id: {'role_name': str, 'assigned_at': str}}
+        """
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, new_role_name, created_at
+            FROM staff_changes
+            WHERE guild_id = ? AND action IN ('added', 'promoted', 'demoted')
+            AND id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+                    FROM staff_changes
+                    WHERE guild_id = ? AND action IN ('added', 'promoted', 'demoted')
+                ) WHERE rn = 1
+            )
+            ''', (guild_id, guild_id))
+            rows = await cursor.fetchall()
+            result = {}
+            for row in rows:
+                result[row[0]] = {
+                    'role_name': row[1],
+                    'assigned_at': row[2]
+                }
+            return result
+
     async def get_staff_change_stats(self, guild_id: int, start_date, end_date):
         """Belirli tarih aralığında action'a göre sayıları döndürür."""
         async with self.connection.cursor() as cursor:
@@ -1751,6 +1964,116 @@ class Database:
             await self.registration_connection.close()
             self.registration_connection = None
     
+    async def add_private_room_log(self, guild_id, user_id, username, channel_id, channel_name):
+        """Özel oda oluşturma kaydını veritabanına ekler
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            username (str): Kullanıcının adı
+            channel_id (int): Oluşturulan kanalın ID'si
+            channel_name (str): Oluşturulan kanalın adı
+            
+        Returns:
+            int: Log kaydının ID'si
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO private_room_logs (guild_id, user_id, username, channel_id, channel_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, channel_id, channel_name, current_time))
+            
+            await self.connection.commit()
+            return cursor.lastrowid
+    
+    async def update_private_room_deleted(self, channel_id):
+        """Özel odanın silinme zamanını ve süresini günceller
+        
+        Args:
+            channel_id (int): Silinen kanalın ID'si
+            
+        Returns:
+            bool: Güncelleme başarılı ise True, değilse False
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            # Kanal bilgisini bul ve deleted_at'ı güncelle, süreyi hesapla
+            await cursor.execute('''
+            UPDATE private_room_logs 
+            SET deleted_at = ?,
+                duration_minutes = CAST((julianday(?) - julianday(created_at)) * 24 * 60 AS INTEGER)
+            WHERE channel_id = ? AND deleted_at IS NULL
+            ''', (current_time, current_time, channel_id))
+            
+            affected_rows = cursor.rowcount
+            await self.connection.commit()
+            return affected_rows > 0
+    
+    async def get_private_room_stats(self, guild_id, start_date, end_date):
+        """Belirtilen tarih aralığındaki özel oda istatistiklerini getirir
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            dict: Özel oda istatistikleri
+        """
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            # Toplam özel oda sayısı (dönem içinde aktif olan odalar)
+            # Bir oda aktiftir eğer: dönemden önce/içinde oluşturulmuş VE dönem içinde/sonrasında kapanmış veya hâlâ açık
+            await cursor.execute('''
+            SELECT COUNT(*) FROM private_room_logs
+            WHERE guild_id = ? AND created_at < ? AND (deleted_at >= ? OR deleted_at IS NULL)
+            ''', (guild_id, end_str, start_str))
+
+            total_rooms = (await cursor.fetchone())[0]
+
+            # Toplam süre (dakika cinsinden)
+            # Odanın rapor dönemiyle çakışan kısmını hesapla
+            # effective_start = MAX(created_at, start_date)
+            # effective_end = MIN(deleted_at veya end_date, end_date)
+            await cursor.execute('''
+            SELECT SUM(
+                CAST(
+                    (julianday(
+                        CASE
+                            WHEN deleted_at IS NOT NULL AND deleted_at < ? THEN deleted_at
+                            ELSE ?
+                        END
+                    ) - julianday(
+                        CASE
+                            WHEN created_at > ? THEN created_at
+                            ELSE ?
+                        END
+                    )) * 24 * 60
+                AS INTEGER)
+            )
+            FROM private_room_logs
+            WHERE guild_id = ? AND created_at < ? AND (deleted_at >= ? OR deleted_at IS NULL)
+            ''', (end_str, end_str, start_str, start_str, guild_id, end_str, start_str))
+
+            total_minutes = (await cursor.fetchone())[0] or 0
+            total_minutes = max(total_minutes, 0)
+            total_hours = round(total_minutes / 60, 1) if total_minutes > 0 else 0
+
+            # Ortalama süre hesapla
+            avg_minutes = round(total_minutes / total_rooms, 1) if total_rooms > 0 else 0
+
+            return {
+                'total_rooms': total_rooms,
+                'total_minutes': total_minutes,
+                'total_hours': total_hours,
+                'average_minutes': avg_minutes
+            }
+    
     async def get_registration_stats(self, start_date, end_date):
         """Belirtilen tarih aralığındaki kayıt istatistiklerini getirir
         
@@ -1820,7 +2143,311 @@ class Database:
                 'top_hours': [],
                 'error': str(e)
             }
+    
+    async def start_voice_session(self, guild_id: int, user_id: int, username: str, channel_id: int, channel_name: str):
+        """Kullanıcı bir ses kanalına girdiğinde session başlatır.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            username (str): Kullanıcının adı
+            channel_id (int): Ses kanalı ID'si
+            channel_name (str): Ses kanalı adı
+            
+        Returns:
+            int: Session kaydının ID'si
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            # Önce varsa aktif session'ı sonlandır (güvenlik için)
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            # Yeni session başlat
+            await cursor.execute('''
+            INSERT INTO voice_activity_sessions (guild_id, user_id, username, channel_id, channel_name, session_start)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, channel_id, channel_name, current_time))
+            
+            await self.connection.commit()
+            return cursor.lastrowid
 
+    async def end_voice_session(self, guild_id: int, user_id: int):
+        """Kullanıcı ses kanalından çıktığında aktif session'ı sonlandırır.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            user_id (int): Kullanıcının Discord ID'si
+            
+        Returns:
+            bool: Güncelleme başarılı ise True, değilse False
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND user_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id, user_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount > 0
+
+    async def get_voice_activity_stats(self, guild_id: int, start_date, end_date):
+        """Belirtilen tarih aralığında kullanıcıların ses kanalı sürelerini döndürür.
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi
+            end_date (datetime): Bitiş tarihi
+            
+        Returns:
+            list: Kullanıcı bazlı ses kanalı istatistikleri
+        """
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT user_id, MAX(username) as username, 
+                   SUM(COALESCE(total_minutes, CAST((julianday(COALESCE(session_end, ?)) - julianday(session_start)) * 24 * 60 AS INTEGER))) as total_minutes
+            FROM voice_activity_sessions
+            WHERE guild_id = ? AND session_start >= ? AND session_start < ?
+            GROUP BY user_id
+            ORDER BY total_minutes DESC
+            ''', (end_str, guild_id, start_str, end_str))
+            
+            rows = await cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                total_minutes = row[2] or 0
+                results.append({
+                    'user_id': row[0],
+                    'username': row[1],
+                    'total_minutes': total_minutes,
+                    'total_hours': round(total_minutes / 60, 1),
+                })
+            return results
+
+    async def end_all_voice_sessions(self, guild_id: int):
+        """Sunucudaki tüm aktif voice session'larını sonlandırır (bot restart için).
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            
+        Returns:
+            int: Sonlandırılan session sayısı
+        """
+        current_time = datetime.now(timezone.utc).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            UPDATE voice_activity_sessions 
+            SET session_end = ?, total_minutes = CAST((julianday(?) - julianday(session_start)) * 24 * 60 AS INTEGER)
+            WHERE guild_id = ? AND session_end IS NULL
+            ''', (current_time, current_time, guild_id))
+            
+            await self.connection.commit()
+            return cursor.rowcount
+
+    async def cleanup_old_voice_sessions(self, days_to_keep=14):
+        """Eski voice activity session'larını temizler (varsayılan: 2 hafta).
+        
+        Args:
+            days_to_keep (int): Kaç günlük veriyi tutacak
+            
+        Returns:
+            int: Silinen kayıt sayısı
+        """
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days_to_keep)).isoformat()
+        
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT COUNT(*) FROM voice_activity_sessions WHERE session_start < ?
+            ''', (cutoff_date,))
+            
+            count_to_delete = (await cursor.fetchone())[0]
+            
+            if count_to_delete > 0:
+                await cursor.execute('''
+                DELETE FROM voice_activity_sessions WHERE session_start < ?
+                ''', (cutoff_date,))
+                
+                await self.connection.commit()
+            
+            return count_to_delete
+
+    async def record_channel_message(self, guild_id, channel_id, channel_name, category_type, user_id, message_date):
+        """Bir mesajı kanal istatistiklerine kaydeder (günlük toplu)
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            channel_id (int): Kanal ID'si
+            channel_name (str): Kanal adı
+            category_type (str): Kategori tipi ('sohbet' veya 'eglence')
+            user_id (int): Mesajı gönderen kullanıcı ID'si
+            message_date (str): Mesaj tarihi (YYYY-MM-DD format, UTC)
+        """
+        try:
+            async with self.connection.cursor() as cursor:
+                # Önce bugün bu kanal için kayıt var mı kontrol et
+                await cursor.execute('''
+                SELECT id, unique_users FROM channel_message_stats
+                WHERE guild_id = ? AND channel_id = ? AND message_date = ?
+                ''', (guild_id, channel_id, message_date))
+                
+                existing = await cursor.fetchone()
+                
+                if existing:
+                    # Var olan kaydı güncelle
+                    record_id = existing[0]
+                    
+                    # Mesaj sayısını artır
+                    await cursor.execute('''
+                    UPDATE channel_message_stats
+                    SET message_count = message_count + 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    ''', (record_id,))
+                    
+                    # Unique kullanıcıyı kontrol et ve gerekirse artır
+                    # Not: Bu basit bir yaklaşım, tam doğruluk için ayrı bir tablo kullanılabilir
+                    # Ancak performans için günlük unique user sayısını manuel takip ediyoruz
+                    
+                else:
+                    # Yeni kayıt oluştur
+                    await cursor.execute('''
+                    INSERT INTO channel_message_stats 
+                    (guild_id, channel_id, channel_name, category_type, message_date, message_count, unique_users)
+                    VALUES (?, ?, ?, ?, ?, 1, 1)
+                    ''', (guild_id, channel_id, channel_name, category_type, message_date))
+                
+                await self.connection.commit()
+                
+        except Exception as e:
+            print(f"Kanal mesaj kaydı hatası: {e}")
+    
+    async def increment_channel_unique_users(self, guild_id, channel_id, message_date):
+        """Bir kanalın o günkü unique kullanıcı sayısını artırır
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            channel_id (int): Kanal ID'si
+            message_date (str): Mesaj tarihi (YYYY-MM-DD format, UTC)
+        """
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                UPDATE channel_message_stats
+                SET unique_users = unique_users + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE guild_id = ? AND channel_id = ? AND message_date = ?
+                ''', (guild_id, channel_id, message_date))
+                
+                await self.connection.commit()
+                
+        except Exception as e:
+            print(f"Unique kullanıcı sayısı güncelleme hatası: {e}")
+    
+    async def get_channel_stats_by_period(self, guild_id, start_date, end_date):
+        """Belirtilen tarih aralığındaki kanal istatistiklerini getirir
+        
+        Args:
+            guild_id (int): Sunucu ID'si
+            start_date (datetime): Başlangıç tarihi (UTC)
+            end_date (datetime): Bitiş tarihi (UTC)
+            
+        Returns:
+            dict: Kategori bazında kanal istatistikleri
+        """
+        try:
+            start_date_str = start_date.date().isoformat()
+            end_date_str = end_date.date().isoformat()
+            
+            async with self.connection.cursor() as cursor:
+                # Kategori bazında toplam istatistikler
+                await cursor.execute('''
+                SELECT 
+                    category_type,
+                    SUM(message_count) as total_messages,
+                    COUNT(DISTINCT channel_id) as active_channels,
+                    AVG(unique_users) as avg_unique_users
+                FROM channel_message_stats
+                WHERE guild_id = ? 
+                    AND message_date >= ? 
+                    AND message_date < ?
+                GROUP BY category_type
+                ''', (guild_id, start_date_str, end_date_str))
+                
+                category_stats = {}
+                for row in await cursor.fetchall():
+                    category_type = row[0]
+                    category_stats[category_type] = {
+                        'total_messages': row[1] or 0,
+                        'active_channels': row[2] or 0,
+                        'avg_unique_users_per_day': round(row[3] or 0, 1)
+                    }
+                
+                # Her kategori için kanal bazında detaylı istatistikler
+                for category_type in category_stats.keys():
+                    # En aktif kanallar
+                    await cursor.execute('''
+                    SELECT 
+                        channel_id,
+                        channel_name,
+                        SUM(message_count) as total_messages,
+                        AVG(unique_users) as avg_unique_users
+                    FROM channel_message_stats
+                    WHERE guild_id = ? 
+                        AND category_type = ?
+                        AND message_date >= ? 
+                        AND message_date < ?
+                    GROUP BY channel_id, channel_name
+                    ORDER BY total_messages DESC
+                    ''', (guild_id, category_type, start_date_str, end_date_str))
+                    
+                    channels = []
+                    for row in await cursor.fetchall():
+                        channels.append({
+                            'channel_id': row[0],
+                            'channel_name': row[1],
+                            'total_messages': row[2],
+                            'avg_unique_users_per_day': round(row[3] or 0, 1)
+                        })
+                    
+                    category_stats[category_type]['channels'] = channels
+                    
+                    # Günlük dağılım (haftalık için 7 gün)
+                    await cursor.execute('''
+                    SELECT 
+                        message_date,
+                        SUM(message_count) as daily_total
+                    FROM channel_message_stats
+                    WHERE guild_id = ? 
+                        AND category_type = ?
+                        AND message_date >= ? 
+                        AND message_date < ?
+                    GROUP BY message_date
+                    ORDER BY message_date
+                    ''', (guild_id, category_type, start_date_str, end_date_str))
+                    
+                    daily_breakdown = []
+                    for row in await cursor.fetchall():
+                        daily_breakdown.append({
+                            'date': row[0],
+                            'message_count': row[1]
+                        })
+                    
+                    category_stats[category_type]['daily_breakdown'] = daily_breakdown
+                
+                return category_stats
+                
+        except Exception as e:
+            print(f"Kanal istatistikleri alınırken hata: {e}")
+            return {}
 
 
 

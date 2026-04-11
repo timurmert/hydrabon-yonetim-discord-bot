@@ -10,6 +10,10 @@ turkey_tz = pytz.timezone('Europe/Istanbul')
 # Ana dosyada tanımlanan değeri burada da tanımlayarak senkronize ediyoruz
 FORM_QUESTION_COUNT = 5
 
+# Başvuruların gönderileceği kanal ID'si
+BASVURU_CHANNEL_ID = 1365954139607269436
+YETKILI_ALIM_CATEGORY_ID = 1365954135190409226
+
 class YetkiliAlim(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -128,7 +132,7 @@ class YetkiliAlim(commands.Cog):
         
         # Kullanıcıya özel başvuru kanalı oluşturma
         # Bu kanal yetkili alım kategorisinde ve sadece başvuran kişi görebilecek
-        category = discord.utils.get(interaction.guild.categories, name="YETKİLİ ALIM")
+        category = interaction.guild.get_channel(YETKILI_ALIM_CATEGORY_ID)
         if not category:
             return await interaction.followup.send(
                 "Yetkili Alım kategorisi bulunamadı. Lütfen bir yetkiliyle iletişime geçin.", 
@@ -205,10 +209,10 @@ class YetkiliAlim(commands.Cog):
         # Form soruları
         questions = [
             "Adınız ve yaşınız nedir?",
-            "Discord'da günde kaç saat aktif olabilirsiniz?",
             "Discord sunucularında yetkililik deneyiminiz var mı? Varsa ne kadar süre?",
             "Sunucumuzda yetkili olmak isteme sebebiniz nedir?",
-            "Sizce iyi bir Discord yetkilisinin sahip olması gereken özellikler nelerdir?"
+            "Yetkili kanallarını takip edip sunucu içi sohbetlere aktif olarak katılım sağlayabilir misiniz?",
+            "Üzerinize düşen görevleri yerine getirmemeniz durumunda yetkinizdeki olası değişiklikleri kabul ediyor musunuz?"
         ]
         
         # Senkronizasyon kontrolü
@@ -413,8 +417,8 @@ class YetkiliAlim(commands.Cog):
                 inline=False
             )
         
-        # Başvurular kanalına gönderme
-        submissions_channel = discord.utils.get(guild.text_channels, name="başvurular")
+        # Başvurular kanalına gönderme (ID ile alınıyor)
+        submissions_channel = guild.get_channel(BASVURU_CHANNEL_ID)
         if submissions_channel:
             # Onay/Ret butonları
             view = discord.ui.View(timeout=None)
@@ -523,8 +527,8 @@ class YetkiliAlim(commands.Cog):
         except Exception as e:
             print(f"İptal edilen başvuruyu veritabanına kaydetme/güncelleme hatası: {e}")
         
-        # Başvurular kanalına gönderme
-        submissions_channel = discord.utils.get(guild.text_channels, name="başvurular")
+        # Başvurular kanalına gönderme (ID ile alınıyor)
+        submissions_channel = guild.get_channel(BASVURU_CHANNEL_ID)
         if submissions_channel:
             await submissions_channel.send(embed=embed)
 
@@ -682,6 +686,7 @@ class RoleSelectMenu(discord.ui.Select):
             1163918714081644554,  # STAJYER
             1200919832393154680,  # ASİSTAN
             1163918107501412493,  # MODERATÖR
+            1460021463607152703,  # KIDEMLİ MODERATÖR
             1163918130192580608  # ADMİN
         ]
         
@@ -818,8 +823,8 @@ class RoleSelectMenu(discord.ui.Select):
                 
                 # Başvuru butonlarını devre dışı bırak
                 try:
-                    # Sunucudaki tüm başvuru mesajlarını kontrol et
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="başvurular")
+                    # Sunucudaki tüm başvuru mesajlarını kontrol et (ID ile alınıyor)
+                    log_channel = interaction.guild.get_channel(BASVURU_CHANNEL_ID)
                     if log_channel:
                         async for message in log_channel.history(limit=100):
                             # Mesaj içeriğinde kullanıcı ID'si var mı kontrol et
@@ -854,8 +859,8 @@ class RoleSelectMenu(discord.ui.Select):
             except Exception as e:
                 print(f"Başvuru onaylama veritabanı hatası: {e}")
             
-            # Log kanalına bilgi gönder (başvurular)
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="başvurular")
+            # Log kanalına bilgi gönder (başvurular - ID ile alınıyor)
+            log_channel = interaction.guild.get_channel(BASVURU_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(
                     title="✅ Yetkili Başvurusu Onaylandı",
@@ -1006,8 +1011,8 @@ class StaffRejectionModal(discord.ui.Modal, title="Yetkili Başvurusu Reddi"):
                 
                 # Başvuru butonlarını devre dışı bırak
                 try:
-                    # Sunucudaki tüm başvuru mesajlarını kontrol et
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="başvurular")
+                    # Sunucudaki tüm başvuru mesajlarını kontrol et (ID ile alınıyor)
+                    log_channel = interaction.guild.get_channel(BASVURU_CHANNEL_ID)
                     if log_channel:
                         async for message in log_channel.history(limit=100):
                             # Mesaj içeriğinde kullanıcı ID'si var mı kontrol et
@@ -1042,8 +1047,8 @@ class StaffRejectionModal(discord.ui.Modal, title="Yetkili Başvurusu Reddi"):
             except Exception as e:
                 print(f"Başvuru reddetme veritabanı hatası: {e}")
             
-            # Log kanalına bilgi gönder
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="başvurular")
+            # Log kanalına bilgi gönder (ID ile alınıyor)
+            log_channel = interaction.guild.get_channel(BASVURU_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(
                     title="❌ Yetkili Başvurusu Reddedildi",

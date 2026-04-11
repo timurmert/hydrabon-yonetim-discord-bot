@@ -16,16 +16,20 @@ class ServerLogs(commands.Cog):
         self.log_channel = None
         self.target_guild_id = 1029088146752815138  # İzlenmeyecek sunucu ID'si (Davet korumasında HydRaboN hariç tutmak için)
         self.alert_channel_id = 1362825644550914263  # Uyarı gönderilecek kanal ID'si (Yetkili sohbet)
+        # Sunucunun kendi vanity URL'leri (seviye düştüğünde geçersiz olabilir)
+        self.own_vanity_urls = {"hydrabon"}  # Sunucunun vanity URL'lerini buraya ekleyin
         # Log kategorileri (mesaj silme cezaları bu kategorilerde tetiklenir)
         self.log_category_ids = {1217523779471937547, 1281779525658742784}
         # YK sohbet kanal ID'si (uyarı buraya gidecek)
         self.yk_sohbet_channel_id = 1362825668965957845
+        self.sunucu_log_channel_id = 1365956201539571835
         
         # Yetkili rol ID'leri
         self.yetkili_rolleri = {
             "STAJYER": 1163918714081644554,
             "ASİSTAN": 1200919832393154680,
             "MODERATÖR": 1163918107501412493,
+            "KIDEMLİ MODERATÖR": 1460021463607152703,
             "ADMİN": 1163918130192580608,
             "YÖNETİM KURULU ADAYLARI": 1412843482980290711,
             "YÖNETİM KURULU ÜYELERİ": 1029089731314720798,
@@ -145,7 +149,7 @@ class ServerLogs(commands.Cog):
             return self.log_channel
             
         # Kanal adına göre log kanalını bul
-        log_channel = discord.utils.get(guild.channels, name="sunucu-log")
+        log_channel = discord.utils.get(guild.channels, id=self.sunucu_log_channel_id)
         
         # Eğer kanal yoksa, None döndür
         self.log_channel = log_channel
@@ -1298,13 +1302,13 @@ class ServerLogs(commands.Cog):
 
     @commands.hybrid_command(name="logkanal-kur", description="Sunucu için log kanalı oluşturur")
     @commands.has_permissions(administrator=True)
-    async def setup_log_channel(self, interaction):
+    async def setup_log_channel(self, ctx):
         """Sunucu için log kanalı oluşturur"""
         # Kanal zaten var mı kontrol et
-        existing_channel = discord.utils.get(interaction.guild.channels, name="sunucu-log")
+        existing_channel = discord.utils.get(ctx.guild.channels, id=self.sunucu_log_channel_id)
         
         if existing_channel:
-            await interaction.response.send_message("⚠️ 'sunucu-log' kanalı zaten mevcut!")
+            await ctx.send("⚠️ 'sunucu-log' kanalı zaten mevcut!")
             self.log_channel = existing_channel
             return
         
@@ -1312,17 +1316,17 @@ class ServerLogs(commands.Cog):
         try:
             # Overwrites ile sadece yöneticilerin görebileceği bir kanal oluştur
             overwrites = {
-                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
+                ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
             }
             
             # Yöneticiler için izin ekle
-            for role in interaction.guild.roles:
+            for role in ctx.guild.roles:
                 if role.permissions.administrator:
                     overwrites[role] = discord.PermissionOverwrite(read_messages=True)
             
             # Kanalı oluştur
-            log_channel = await interaction.guild.create_text_channel(
+            log_channel = await ctx.guild.create_text_channel(
                 name="sunucu-log",
                 overwrites=overwrites,
                 topic="HydRaboN Sunucu Log Kanalı - Sunucu içi olaylar burada loglanır",
@@ -1338,7 +1342,7 @@ class ServerLogs(commands.Cog):
                 color=discord.Color.green()
             )
             
-            await interaction.response.send_message(embed=embed)
+            await ctx.send(embed=embed)
             
             # İlk log mesajını gönder
             welcome_embed = discord.Embed(
@@ -1366,9 +1370,9 @@ class ServerLogs(commands.Cog):
             asyncio.create_task(self.safe_send(log_channel, embed=welcome_embed))
             
         except discord.Forbidden:
-            await interaction.response.send_message("❌ Bot'un kanal oluşturma izni yok!")
+            await ctx.send("❌ Bot'un kanal oluşturma izni yok!")
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Kanal oluşturulurken bir hata oluştu: {e}")
+            await ctx.send(f"❌ Kanal oluşturulurken bir hata oluştu: {e}")
 
     @commands.Cog.listener()
     async def on_presence_update(self, before, after):
@@ -1439,9 +1443,12 @@ class ServerLogs(commands.Cog):
                     break  # İlk bulduğunda dur (spam önleme)
                     
             except discord.NotFound:
-                # Geçersiz davet linki, ama yine de uyar
-                await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
-                break  # İlk bulduğunda dur
+                # Eğer bu sunucunun kendi vanity URL'iyse uyarma (seviye düşünce geçersiz olabilir)
+                if invite_code.lower() not in self.own_vanity_urls:
+                    # Geçersiz davet linki, ama yine de uyar
+                    await self.send_invalid_invite_alert(after, invite_code, all_activity_text)
+                # Kendi vanity URL'imiz olsa bile döngüyü kır (spam önleme)
+                break
             except discord.HTTPException as e:
                 print(f"Davet linki uyarısı gönderme hatası: {e}")
 

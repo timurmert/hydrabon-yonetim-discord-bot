@@ -30,6 +30,7 @@ class ExtraFeatures(commands.Cog):
         self.LOG_CHANNEL_ID = 1362825644550914263  # Yetkili sohbet kanalı ID'si
         self.KURUCU_ROLE_ID = 1029089723110674463  # Kurucu rolü ID'si
         self.KURUCU_ID = 315888596437696522  # Kurucu ID'si
+        self.WELCOME_CHANNEL_ID = 1406431661872124026  # Hoş geldin kanalı ID'si
         
         # İzin verilen yetkili roller
         self.EXEMPT_ROLES = {
@@ -71,7 +72,7 @@ class ExtraFeatures(commands.Cog):
         """Karaliste dosyasını yükler"""
         try:
             with open('karaliste.txt', 'r', encoding='ISO-8859-9') as file:
-                return file.read()
+                return [line.strip() for line in file.readlines() if line.strip()]
         except Exception as e:
             print(f"Karaliste yüklenirken hata oluştu: {e}")
             return []
@@ -189,9 +190,106 @@ class ExtraFeatures(commands.Cog):
                     action='leave',
                     account_created=member.created_at
                 )
+                
+                # Yetkili rolü kontrolü - ayrılan üye yetkili miydi?
+                await self.check_staff_leave(member, db)
                     
         except Exception as e:
             print(f"Member remove işlemi hatası: {e}")
+
+    async def check_staff_leave(self, member, db):
+        """Yetkili rolüne sahip bir üye sunucudan ayrıldığında otomatik not ekler ve log atar"""
+        try:
+            YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
+            
+            # Üyenin sahip olduğu yetkili rollerini tespit et
+            sahip_roller = []
+            for rol_adi, rol_id in YETKILI_ROLLERI.items():
+                if any(r.id == rol_id for r in member.roles):
+                    sahip_roller.append(rol_adi)
+            
+            # Yetkili rolü yoksa işlem yapma
+            if not sahip_roller:
+                return
+            
+            # Roller listesini formatla
+            roller_str = ", ".join(sahip_roller)
+            en_yuksek_rol = sahip_roller[-1] if sahip_roller else sahip_roller[0]
+            
+            # Zaman bilgisi
+            turkey_tz = pytz.timezone('Europe/Istanbul')
+            simdi = datetime.datetime.now(turkey_tz)
+            tarih_str = simdi.strftime("%d.%m.%Y %H:%M")
+            
+            # Katılma tarihi bilgisi
+            katilma_bilgisi = ""
+            if member.joined_at:
+                katilma_gun = (simdi - member.joined_at.astimezone(turkey_tz)).days
+                katilma_bilgisi = f" | Sunucuda {katilma_gun} gün bulundu"
+            
+            # Otomatik kullanıcı notu ekle
+            not_icerigi = (
+                f"⚠️ Bu kullanıcı yetkili ({roller_str}) iken sunucudan ayrıldı. "
+                f"[{tarih_str}]{katilma_bilgisi}"
+            )
+            
+            note_id = await db.add_user_note(
+                user_id=member.id,
+                username=member.name,
+                discriminator=member.discriminator or "0",
+                note_content=not_icerigi,
+                created_by=self.bot.user.id,
+                created_by_username="Sistem (Otomatik)",
+                guild_id=member.guild.id
+            )
+            
+            # Yetkili panel log kanalına bildirim gönder
+            log_channel = self.bot.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                embed = discord.Embed(
+                    title="⚠️ Yetkili Ayrılış Tespiti",
+                    description=(
+                        f"Yetkili rolüne sahip bir kullanıcı sunucudan ayrıldı. "
+                        f"Kullanıcıya otomatik not eklendi."
+                    ),
+                    color=discord.Color.dark_orange(),
+                    timestamp=simdi
+                )
+                embed.add_field(
+                    name="👤 Kullanıcı",
+                    value=f"**{member.name}** ({member.mention})\n`ID: {member.id}`",
+                    inline=True
+                )
+                embed.add_field(
+                    name="🛡️ Yetkili Rolleri",
+                    value=roller_str,
+                    inline=True
+                )
+                if member.joined_at:
+                    embed.add_field(
+                        name="📅 Katılma Tarihi",
+                        value=f"{discord.utils.format_dt(member.joined_at, style='R')} ({katilma_gun} gün)",
+                        inline=True
+                    )
+                embed.add_field(
+                    name="📝 Eklenen Not",
+                    value=f"```{not_icerigi}```",
+                    inline=False
+                )
+                embed.add_field(
+                    name="🔖 Not ID",
+                    value=f"`#{note_id}`",
+                    inline=True
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text=f"Kullanıcı ID: {member.id} • Otomatik Not Sistemi")
+                
+                await log_channel.send(embed=embed)
+            
+            print(f"[Yetkili Ayrılış] {member.name} ({member.id}) - Roller: {roller_str} - Not #{note_id} eklendi")
+            
+        except Exception as e:
+            print(f"Yetkili ayrılış kontrolü hatası: {e}")
     
     async def check_user_notes_on_join(self, member):
         """Yeni katılan üye için not kontrolü yapar ve uyarı gönderir"""
@@ -291,65 +389,70 @@ class ExtraFeatures(commands.Cog):
         if message.author.bot:
             return
 
-        # Yetkili kullanıcıları kontrol et
+        # Yetkili kullanıcıları kontrol et (üst yönetim tamamen muaf)
         if any(role.id in self.EXEMPT_ROLES for role in message.author.roles):
             return
             
-        # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (mesajı sil ve kısa uyarı)
+        # Kurucu rolü/kurucu kullanıcı etiketleme kontrolü (sadece yetkili olmayanlar için)
         try:
-            # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
-            # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
-            kurucu_role_etiketi = False
-            kurucu_kullanici_etiketi = False
-            
-            # Spesifik kurucu ID'si kontrolü
-            kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
-            
-            if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
-                kurucu_kullanici_etiketi = True
-            
-            # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
-            kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
-            if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
-                kurucu_role_etiketi = True
+            # Kullanıcının herhangi bir yetkili rolü var mı? (STAJYER'den KURUCU'ya kadar)
+            is_yetkili = any(r.id in YETKILI_ROLLERI.values() for r in message.author.roles)
 
-            if kurucu_role_etiketi or kurucu_kullanici_etiketi:
-                    try:
-                        await message.delete()
-                    except discord.Forbidden:
-                        pass
-                    except Exception:
-                        pass
+            # Sadece yetkili ROLÜ OLMAYAN kullanıcılar kurucuyu etiketleyemez
+            if not is_yetkili:
+                # Sadece mesaj içeriğinde direkt kurucu etiketlemesi var mı kontrol et
+                # Mesaj yanıtları (reply) bu kontrolden muaf tutulur
+                kurucu_role_etiketi = False
+                kurucu_kullanici_etiketi = False
+                
+                # Spesifik kurucu ID'si kontrolü
+                kurucu_etiketi_pattern = f"<@!?{self.KURUCU_ID}>"
+                
+                if kurucu_etiketi_pattern in message.content or f"<@{self.KURUCU_ID}>" in message.content:
+                    kurucu_kullanici_etiketi = True
+                
+                # Kurucu rolü etiketlendi mi? (sadece mesaj içeriğinde)
+                kurucu_role = message.guild.get_role(self.KURUCU_ROLE_ID) if message.guild else None
+                if kurucu_role and f"<@&{self.KURUCU_ROLE_ID}>" in message.content:
+                    kurucu_role_etiketi = True
 
-                    # Kullanıcıya yönlendirici kısa uyarı
-                    try:
-                        ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
-                        ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
-                        await message.channel.send(f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
-                    except Exception:
-                        pass
+                if kurucu_role_etiketi or kurucu_kullanici_etiketi:
+                        try:
+                            await message.delete()
+                        except discord.Forbidden:
+                            pass
+                        except Exception:
+                            pass
 
-                    # Log kanalına bilgi
-                    try:
-                        log_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
-                        if log_channel:
-                            embed = discord.Embed(
-                                title="🚫 Kurucu Etiketleme Mesajı Silindi",
-                                description=(
-                                    f"**Kullanıcı:** {message.author.mention} ({message.author.id})\n"
-                                    f"**Kanal:** {message.channel.mention}\n"
-                                    f"**İçerik:** ```{message.content[:1000]}```"
-                                ),
-                                color=discord.Color.red(),
-                                timestamp=datetime.datetime.now(self.turkey_tz)
-                            )
-                            embed.set_thumbnail(url=message.author.display_avatar.url)
-                            embed.set_footer(text=f"{message.guild.name} • Kurucu Etiket Koruma")
-                            asyncio.create_task(self.safe_send(log_channel, embed=embed))
-                    except Exception:
-                        pass
+                        # Kullanıcıya yönlendirici kısa uyarı
+                        try:
+                            ticket_channel = message.guild.get_channel(1364306040727933017) if message.guild else None
+                            ticket_mention = ticket_channel.mention if ticket_channel else "<#1364306040727933017>"
+                            await message.channel.send(f"{message.author.mention} kurucumuzu etiketlemek yerine, lütfen {ticket_mention} kanalını kullanın.")
+                        except Exception:
+                            pass
 
-                    return
+                        # Log kanalına bilgi
+                        try:
+                            log_channel = self.bot.get_channel(self.LOG_CHANNEL_ID)
+                            if log_channel:
+                                embed = discord.Embed(
+                                    title="🚫 Kurucu Etiketleme Mesajı Silindi",
+                                    description=(
+                                        f"**Kullanıcı:** {message.author.mention} ({message.author.id})\n"
+                                        f"**Kanal:** {message.channel.mention}\n"
+                                        f"**İçerik:** ```{message.content[:1000]}```"
+                                    ),
+                                    color=discord.Color.red(),
+                                    timestamp=datetime.datetime.now(self.turkey_tz)
+                                )
+                                embed.set_thumbnail(url=message.author.display_avatar.url)
+                                embed.set_footer(text=f"{message.guild.name} • Kurucu Etiket Koruma")
+                                asyncio.create_task(self.safe_send(log_channel, embed=embed))
+                        except Exception:
+                            pass
+
+                        return
         except Exception:
             pass
 
@@ -428,10 +531,8 @@ class ExtraFeatures(commands.Cog):
 
         # Link denetimi - Mesajın içinde link var mı kontrol et
         if self.link_pattern.search(message.content):
-            # Hoş geldin kanalı ID'si (varsayılan: yok, değişkenle kontrol ediyoruz)
-            WELCOME_CHANNEL_ID = getattr(self, 'WELCOME_CHANNEL_ID', None)
-            
-            if WELCOME_CHANNEL_ID and message.channel.id == WELCOME_CHANNEL_ID:
+            # Hoş geldin kanalında link kontrolü
+            if message.channel.id == self.WELCOME_CHANNEL_ID:
                 await message.delete()
                 msg = await message.channel.send(f'{message.author.mention}, medya içeriklerini <#1406432595679383572> kanalına atmanız gerekmektedir.')
                 await msg.delete(delay=4)
@@ -451,8 +552,8 @@ class ExtraFeatures(commands.Cog):
             return  # DM mesajlarını kontrol etme
             
         # Belirli kategori içindeki kanalları hariç tut
-        EXCLUDED_CATEGORY_ID = 1036080439942713365
-        if message.channel.category and message.channel.category.id == EXCLUDED_CATEGORY_ID:
+        EXCLUDED_CATEGORY_IDS = {1036080439942713365, 1029089771525521520}
+        if message.channel.category and message.channel.category.id in EXCLUDED_CATEGORY_IDS:
             return
             
         user_id = message.author.id
@@ -946,35 +1047,112 @@ class ExtraFeatures(commands.Cog):
     
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        """Kanal silindiğinde çalışır"""
+        """Kanal silindiğinde çalışır — koruma sistemi"""
+        guild = channel.guild
+
+        # Muaf kategori kontrolü — bu kategorideki kanallar silinebilir
+        EXEMPT_CATEGORY_ID = 1067552184423694466
+        if channel.category_id == EXEMPT_CATEGORY_ID:
+            return
+
         # Denetim kaydını kontrol edip kanalı kimin sildiğini bul
+        deleter = None
         try:
-            async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
+            async for entry in guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
                 deleter = entry.user
                 break
         except discord.Forbidden:
-            pass
-            return
-        
-        if deleter and any(role.id in self.EXEMPT_ROLES for role in deleter.roles):
             return
 
-        if deleter:
-            # Eğer kanalı silen kişi bir bot değilse
-            if not deleter.bot:
-                # Kullanıcının tüm rollerini kaldır
-                for role in deleter.roles[1:]:  # @everyone rolünü dışarıda bırak
-                    try:
-                        await deleter.remove_roles(role, reason="Kanal silme nedeniyle roller kaldırıldı")
-                    except discord.Forbidden:
-                        pass
-                    except discord.HTTPException as e:
-                        print(f"{role.name} rolünü kaldırırken bir hata oluştu: {e}")
+        if not deleter:
+            return
 
-                # Admin'e durumu bildir
-                admin_user = self.bot.get_user(315888596437696522)
-                if admin_user:
-                    await admin_user.send(f"{deleter.mention} adlı kullanıcı bir kanal sildi ve tüm rolleri kaldırıldı!")
+        # Bot hesaplarına dokunma
+        if deleter.bot:
+            return
+
+        # KURUCU rolüne sahip kişiler muaf
+        member = guild.get_member(deleter.id)
+        if not member:
+            return
+
+        if any(role.id == self.KURUCU_ROLE_ID for role in member.roles):
+            return
+
+        # Kanal türü belirleme
+        channel_type_text = "Metin Kanalı"
+        if isinstance(channel, discord.VoiceChannel):
+            channel_type_text = "Ses Kanalı"
+        elif isinstance(channel, discord.CategoryChannel):
+            channel_type_text = "Kategori"
+        elif isinstance(channel, discord.StageChannel):
+            channel_type_text = "Sahne Kanalı"
+        elif isinstance(channel, discord.ForumChannel):
+            channel_type_text = "Forum Kanalı"
+
+        # 1. Öncelik: Tüm rolleri kaldır
+        removed_roles = []
+        for role in member.roles[1:]:  # @everyone hariç
+            try:
+                await member.remove_roles(role, reason="Kanal silme koruması — tüm roller kaldırıldı")
+                removed_roles.append(role.name)
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException as e:
+                print(f"Kanal silme koruması — {role.name} rolünü kaldırırken hata: {e}")
+
+        # 2. 7 gün zaman aşımı uygula
+        timeout_applied = False
+        try:
+            await member.timeout(datetime.timedelta(days=7), reason="Kanal silme koruması — 7 gün zaman aşımı")
+            timeout_applied = True
+        except discord.Forbidden:
+            print(f"Kanal silme koruması — {member.name} kullanıcısına timeout uygulanamadı (yetki yetersiz)")
+        except discord.HTTPException as e:
+            print(f"Kanal silme koruması — timeout hatası: {e}")
+
+        # 3. yk-sohbet kanalına bilgi gönder
+        YK_SOHBET_CHANNEL_ID = 1362825668965957845
+        log_channel = guild.get_channel(YK_SOHBET_CHANNEL_ID)
+        if log_channel:
+            now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+
+            embed = discord.Embed(
+                title="🚨 Kanal Silme Koruması Tetiklendi",
+                description=f"Bir kullanıcı izinsiz kanal sildi. Otomatik yaptırımlar uygulandı.",
+                color=discord.Color.red(),
+                timestamp=now
+            )
+            embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (`{member.name}` — ID: {member.id})", inline=False)
+            embed.add_field(name="📺 Silinen Kanal", value=f"**{channel.name}** (ID: {channel.id})", inline=True)
+            embed.add_field(name="📁 Kanal Türü", value=channel_type_text, inline=True)
+            if channel.category:
+                embed.add_field(name="📂 Kategori", value=channel.category.name, inline=True)
+            embed.add_field(name="🕐 Saat", value=now.strftime("%d.%m.%Y %H:%M:%S"), inline=False)
+
+            # Uygulanan yaptırımlar
+            yaptirimlar = []
+            if removed_roles:
+                yaptirimlar.append(f"✅ **{len(removed_roles)}** rol kaldırıldı")
+            else:
+                yaptirimlar.append("❌ Rol kaldırılamadı")
+            if timeout_applied:
+                yaptirimlar.append("✅ 7 gün zaman aşımı uygulandı")
+            else:
+                yaptirimlar.append("❌ Zaman aşımı uygulanamadı")
+
+            embed.add_field(name="⚡ Uygulanan Yaptırımlar", value="\n".join(yaptirimlar), inline=False)
+
+            if removed_roles:
+                roles_text = ", ".join(removed_roles)
+                if len(roles_text) > 1024:
+                    roles_text = roles_text[:1000] + "..."
+                embed.add_field(name="🏷️ Kaldırılan Roller", value=roles_text, inline=False)
+
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"{guild.name} • Kanal Silme Koruması", icon_url=guild.icon.url if guild.icon else None)
+
+            await log_channel.send(embed=embed)
     
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role):
@@ -1138,6 +1316,19 @@ class ExtraFeatures(commands.Cog):
                 # Kullanıcıyı yeni kanala taşı
                 await member.move_to(new_channel)
                 
+                # Özel oda oluşturma kaydını veritabanına ekle
+                try:
+                    db = await get_db()
+                    await db.add_private_room_log(
+                        guild_id=guild.id,
+                        user_id=member.id,
+                        username=str(member),
+                        channel_id=new_channel.id,
+                        channel_name=new_channel.name
+                    )
+                except Exception as e:
+                    print(f"Özel oda log kaydedilirken hata: {e}")
+                
             except discord.HTTPException as e:
                 print(f"Kanal oluşturulurken hata: {e}")
         
@@ -1146,11 +1337,20 @@ class ExtraFeatures(commands.Cog):
             # Kanalda kimse kalmadıysa ve bot'un oluşturduğu bir kanalsa sil
             if len(before.channel.members) == 0:
                 try:
+                    channel_id = before.channel.id
                     await before.channel.delete()
+                    
+                    # Özel oda silinme zamanını veritabanına kaydet
+                    try:
+                        db = await get_db()
+                        await db.update_private_room_deleted(channel_id)
+                    except Exception as e:
+                        print(f"Özel oda silinme zamanı güncellenirken hata: {e}")
+                    
                     # Listelerden kaldır
-                    self.created_channels.remove(before.channel.id)
-                    if before.channel.id in self.channel_owners:
-                        del self.channel_owners[before.channel.id]
+                    self.created_channels.remove(channel_id)
+                    if channel_id in self.channel_owners:
+                        del self.channel_owners[channel_id]
                 except discord.HTTPException as e:
                     print(f"Kanal silinirken hata: {e}")
 
@@ -1246,6 +1446,51 @@ class ExtraFeatures(commands.Cog):
             # Kullanıcıdan kanal iznini kaldır
             await voice_channel.set_permissions(kullanici, connect=False)
             await interaction.response.send_message(f"{kullanici} adlı kullanıcıdan odaya erişim izni silindi.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
+
+    @app_commands.command(name="kilitle", description="Özel odayı kilitler")
+    async def kilitle(self, interaction: discord.Interaction):
+        # Kullanıcı bir ses kanalında mı kontrol et
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
+            
+        voice_channel = interaction.user.voice.channel
+        guild = interaction.guild
+
+        # Kullanıcı kanal sahibi mi kontrol et
+        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
+            # @everyone rolü için "Bağlan" iznini kaldır
+            overwrites = voice_channel.overwrites
+            everyone_role = guild.default_role  # @everyone rolünü elde et
+            overwrites[everyone_role] = discord.PermissionOverwrite(connect=False)
+
+            # Kanal sahibi her zaman bağlanabilir
+            overwrites[interaction.user] = discord.PermissionOverwrite(connect=True)
+            await voice_channel.edit(overwrites=overwrites)
+
+            await interaction.response.send_message("Oda kilitlendi.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
+
+    @app_commands.command(name="kilit-ac", description="Özel odanın kilidini açar")
+    async def kilit_ac(self, interaction: discord.Interaction):
+        # Kullanıcı bir ses kanalında mı kontrol et
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return await interaction.response.send_message("Bu komutu kullanmak için bir ses kanalında olmalısınız.", ephemeral=True)
+            
+        voice_channel = interaction.user.voice.channel
+        guild = interaction.guild
+
+        # Kullanıcı kanal sahibi mi kontrol et
+        if voice_channel.id in self.channel_owners and self.channel_owners[voice_channel.id] == interaction.user.id:
+            # @everyone rolü için "Bağlan" iznini geri ver
+            overwrites = voice_channel.overwrites
+            everyone_role = guild.default_role  # @everyone rolünü elde et
+            overwrites[everyone_role] = discord.PermissionOverwrite(connect=True)
+
+            await voice_channel.edit(overwrites=overwrites)
+            await interaction.response.send_message("Oda kilidi açıldı.", ephemeral=True)
         else:
             await interaction.response.send_message("Bu işlemi yapmak için oda sahibi olmanız gerekmektedir.", ephemeral=True)
 

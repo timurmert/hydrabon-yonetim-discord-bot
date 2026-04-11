@@ -5,9 +5,17 @@ import asyncio
 import datetime
 import pytz
 import random
+import io
 from database import get_db
 
 class WeeklyReports(commands.Cog):
+    # Puanlama sabitleri
+    MSG_WEIGHT = 1.0
+    VOICE_WEIGHT = 4.0
+    MESSAGES_PER_HOUR = 30
+    EFFICIENCY_FLOOR = 0.7
+    EFFICIENCY_BONUS = 0.6
+
     def __init__(self, bot):
         self.bot = bot
         self.REPORT_CHANNEL_ID = 1400154619962851480  # YK rapor kanalı
@@ -38,7 +46,15 @@ class WeeklyReports(commands.Cog):
             pass
         # Rapor komut grubunu bot'tan kaldır
         self.bot.tree.remove_command(self.rapor_group.name)
-    
+
+    def calculate_staff_score(self, msg_count, online_hours, voice_hours):
+        """Yetkili performans puanını hesaplar (verimlilik bazlı)"""
+        base = (msg_count * self.MSG_WEIGHT) + (voice_hours * self.VOICE_WEIGHT)
+        active_hours = voice_hours + (msg_count / self.MESSAGES_PER_HOUR)
+        efficiency = active_hours / max(online_hours, 1)
+        multiplier = self.EFFICIENCY_FLOOR + self.EFFICIENCY_BONUS * min(efficiency, 1.0)
+        return round(base * multiplier, 1)
+
     def setup_commands(self):
         """Rapor komutlarını gruba ekler"""
         
@@ -148,21 +164,23 @@ class WeeklyReports(commands.Cog):
             except Exception as e:
                 await interaction.followup.send(f"❌ Temizlik hatası: {e}", ephemeral=True)
     
-    async def safe_send(self, channel, content=None, embed=None, max_retries=3):
+    async def safe_send(self, channel, content=None, embed=None, file=None, max_retries=3):
         """Güvenli mesaj gönderme fonksiyonu - 503 hatalarını önler"""
         if not channel:
             return None
-            
+
         for attempt in range(max_retries):
             try:
-                if content and embed:
-                    return await channel.send(content=content, embed=embed)
-                elif content:
-                    return await channel.send(content=content)
-                elif embed:
-                    return await channel.send(embed=embed)
-                else:
+                kwargs = {}
+                if content:
+                    kwargs['content'] = content
+                if embed:
+                    kwargs['embed'] = embed
+                if file:
+                    kwargs['file'] = file
+                if not kwargs:
                     return None
+                return await channel.send(**kwargs)
                     
             except discord.Forbidden:
                 return None
@@ -361,6 +379,461 @@ class WeeklyReports(commands.Cog):
             'samples': len(all_values)
         }
     
+    async def create_report_image(self, guild, start_date, end_date):
+        """Haftalık rapor dashboard görselini oluşturur ve BytesIO olarak döndürür"""
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import matplotlib.ticker as ticker
+            import matplotlib.font_manager as fm
+            from PIL import Image, ImageDraw, ImageFont
+        except ImportError as e:
+            print(f"Rapor görseli için gerekli kütüphaneler yüklü değil: {e}")
+            return None
+
+        try:
+            db = await get_db()
+            turkey_tz = self.turkey_tz
+            start_turkey = start_date.astimezone(turkey_tz)
+            end_turkey = end_date.astimezone(turkey_tz)
+
+            # ===== VERİ TOPLAMA =====
+            member_stats = await db.get_member_stats_by_period(guild.id, start_date, end_date)
+
+            try:
+                registration_stats = await db.get_registration_stats(start_date, end_date)
+            except Exception:
+                registration_stats = {'total_registrations': 0, 'daily_average': 0}
+
+            bump_stats = await db.get_bump_stats_by_period(guild.id, 'weekly')
+            total_bumps = sum(b['bump_count'] for b in bump_stats) if bump_stats else 0
+
+            try:
+                channel_stats = await db.get_channel_stats_by_period(guild.id, start_date, end_date)
+            except Exception:
+                channel_stats = {}
+
+            presence_snaps = await db.get_presence_snapshots(guild.id, start_date, end_date)
+            daily_avgs = self._compute_daily_averages(presence_snaps, turkey_tz)
+            presence_avgs = self._compute_presence_averages(presence_snaps, turkey_tz)
+
+            try:
+                mod_actions = await self.get_moderation_actions(guild, start_date, end_date)
+            except Exception:
+                mod_actions = {'kicks': [], 'bans': [], 'total': 0}
+
+            # Kanal verilerini işle
+            total_messages = 0
+            sohbet_daily = []
+            eglence_daily = []
+            top_channels = []
+
+            if channel_stats:
+                if 'sohbet' in channel_stats:
+                    total_messages += channel_stats['sohbet'].get('total_messages', 0)
+                    sohbet_daily = channel_stats['sohbet'].get('daily_breakdown', [])
+                    top_channels.extend(channel_stats['sohbet'].get('channels', []))
+                if 'eglence' in channel_stats:
+                    total_messages += channel_stats['eglence'].get('total_messages', 0)
+                    eglence_daily = channel_stats['eglence'].get('daily_breakdown', [])
+                    top_channels.extend(channel_stats['eglence'].get('channels', []))
+
+            top_channels.sort(key=lambda x: x.get('total_messages', 0), reverse=True)
+            top_channels = top_channels[:6]
+
+            # ===== RENK PALETİ =====
+            BG = (13, 17, 23)
+            CARD_BG = (22, 27, 34)
+            CARD_BORDER = (48, 54, 61)
+            ACCENT = (43, 130, 255)
+            ACCENT_HEX = '#2b82ff'
+            GREEN = (63, 185, 80)
+            GREEN_HEX = '#3fb950'
+            RED = (248, 81, 73)
+            RED_HEX = '#f85149'
+            AMBER = (210, 153, 34)
+            AMBER_HEX = '#d29922'
+            PURPLE = (137, 87, 229)
+            PURPLE_HEX = '#8957e5'
+            CYAN = (56, 211, 159)
+            CYAN_HEX = '#38d39f'
+            TEXT_PRIMARY = (230, 237, 243)
+            TEXT_SECONDARY = (139, 148, 158)
+            TEXT_SEC_HEX = '#8b949e'
+            BORDER_HEX = '#30363d'
+
+            # ===== FONT YÜKLEME =====
+            def load_font(size, bold=False):
+                if bold:
+                    paths = [
+                        "C:/Windows/Fonts/segoeuib.ttf",
+                        "C:/Windows/Fonts/arialbd.ttf",
+                        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                    ]
+                else:
+                    paths = [
+                        "C:/Windows/Fonts/segoeui.ttf",
+                        "C:/Windows/Fonts/arial.ttf",
+                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    ]
+                for p in paths:
+                    try:
+                        return ImageFont.truetype(p, size)
+                    except (OSError, IOError):
+                        continue
+                return ImageFont.load_default()
+
+            font_title = load_font(38, bold=True)
+            font_subtitle = load_font(20)
+            font_section = load_font(22, bold=True)
+            font_kpi_num = load_font(44, bold=True)
+            font_kpi_label = load_font(14, bold=True)
+            font_kpi_sub = load_font(13)
+            font_regular = load_font(16)
+            font_footer = load_font(14)
+            font_mini_val = load_font(24, bold=True)
+
+            # Matplotlib font ayarı
+            available_fonts = {f.name for f in fm.fontManager.ttflist}
+            if 'Segoe UI' in available_fonts:
+                plt.rcParams['font.family'] = 'Segoe UI'
+            elif 'DejaVu Sans' in available_fonts:
+                plt.rcParams['font.family'] = 'DejaVu Sans'
+
+            # ===== CANVAS =====
+            WIDTH = 1400
+            HEIGHT = 1500
+            PADDING = 40
+            CW = WIDTH - 2 * PADDING
+
+            img = Image.new('RGBA', (WIDTH, HEIGHT), BG)
+            draw = ImageDraw.Draw(img)
+
+            # ===== YARDIMCI FONKSİYONLAR =====
+            def rounded_rect(x, y, w, h, r=12, fill=CARD_BG, outline=CARD_BORDER):
+                draw.rounded_rectangle([x, y, x + w, y + h], radius=r, fill=fill, outline=outline, width=1)
+
+            def center_text(text, x, y, w, font, fill=TEXT_PRIMARY):
+                bbox = draw.textbbox((0, 0), text, font=font)
+                tw = bbox[2] - bbox[0]
+                draw.text((x + (w - tw) / 2, y), text, font=font, fill=fill)
+
+            def make_chart_image(fig, target_w, target_h):
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, transparent=True, bbox_inches='tight', pad_inches=0.3)
+                buf.seek(0)
+                plt.close(fig)
+                chart = Image.open(buf).convert('RGBA')
+                chart = chart.resize((target_w, target_h), Image.LANCZOS)
+                return chart
+
+            y = PADDING
+
+            # ===== 1. HEADER =====
+            center_text("HAFTALIK SUNUCU RAPORU", PADDING, y, CW, font_title, ACCENT)
+            y += 50
+
+            date_str = f"{start_turkey.strftime('%d.%m.%Y %H:%M')}  —  {end_turkey.strftime('%d.%m.%Y %H:%M')}"
+            center_text(date_str, PADDING, y, CW, font_subtitle, TEXT_SECONDARY)
+            y += 30
+
+            draw.line([(PADDING, y + 5), (WIDTH - PADDING, y + 5)], fill=ACCENT, width=2)
+            y += 20
+
+            # ===== 2. KPI CARDS =====
+            card_gap = 20
+            card_w = (CW - 3 * card_gap) // 4
+            card_h = 110
+
+            net = member_stats['net_change']
+            kpis = [
+                ('NET \u00dcYE', f"{'+' if net > 0 else ''}{net}",
+                 GREEN if net >= 0 else RED,
+                 f"Giri\u015f: {member_stats['joins']}  \u00c7\u0131k\u0131\u015f: {member_stats['leaves']}"),
+                ('TOPLAM MESAJ', f"{total_messages:,}", ACCENT,
+                 f"Mevcut \u00dcye: {guild.member_count:,}"),
+                ('TOPLAM BUMP', f"{total_bumps:,}", PURPLE,
+                 f"G\u00fcnl\u00fck Ort: {total_bumps / 7:.1f}"),
+                ('KAYIT', f"{registration_stats.get('total_registrations', 0):,}", AMBER,
+                 f"G\u00fcnl\u00fck Ort: {registration_stats.get('daily_average', 0)}"),
+            ]
+
+            for i, (label, value, color, sub) in enumerate(kpis):
+                cx = PADDING + i * (card_w + card_gap)
+                rounded_rect(cx, y, card_w, card_h)
+                center_text(value, cx, y + 12, card_w, font_kpi_num, color)
+                center_text(label, cx, y + 65, card_w, font_kpi_label, TEXT_SECONDARY)
+                center_text(sub, cx, y + 88, card_w, font_kpi_sub, TEXT_SECONDARY)
+
+            y += card_h + 25
+
+            # ===== 3. G\u00dcNL\u00dcK MESAJ AKT\u0130V\u0130TES\u0130 =====
+            draw.text((PADDING, y), "G\u00dcNL\u00dcK MESAJ AKT\u0130V\u0130TES\u0130", font=font_section, fill=TEXT_PRIMARY)
+            y += 35
+
+            chart_h_msg = 260
+            day_labels_tr = ['Pzt', 'Sal', '\u00c7ar', 'Per', 'Cum', 'Cmt', 'Paz']
+
+            all_dates_dict = {}
+            for d in sohbet_daily:
+                dk = d['date']
+                all_dates_dict.setdefault(dk, {'sohbet': 0, 'eglence': 0})
+                all_dates_dict[dk]['sohbet'] = d['message_count']
+            for d in eglence_daily:
+                dk = d['date']
+                all_dates_dict.setdefault(dk, {'sohbet': 0, 'eglence': 0})
+                all_dates_dict[dk]['eglence'] = d['message_count']
+
+            sorted_dates = sorted(all_dates_dict.keys())
+
+            if sorted_dates:
+                s_vals = [all_dates_dict[d]['sohbet'] for d in sorted_dates]
+                e_vals = [all_dates_dict[d]['eglence'] for d in sorted_dates]
+
+                labels = []
+                for d in sorted_dates:
+                    dt = datetime.datetime.strptime(d, '%Y-%m-%d')
+                    labels.append(f"{dt.strftime('%d.%m')}\n{day_labels_tr[dt.weekday()]}")
+
+                fig, ax = plt.subplots(figsize=(13, 3.5))
+                fig.patch.set_alpha(0)
+                ax.set_facecolor('none')
+
+                x_pos = range(len(sorted_dates))
+                bw = 0.35
+
+                ax.bar([i - bw / 2 for i in x_pos], s_vals, bw,
+                       label='Sohbet', color=ACCENT_HEX, alpha=0.85, edgecolor='none', zorder=3)
+                ax.bar([i + bw / 2 for i in x_pos], e_vals, bw,
+                       label='E\u011flence', color=PURPLE_HEX, alpha=0.85, edgecolor='none', zorder=3)
+
+                max_val = max(max(s_vals, default=0), max(e_vals, default=0))
+                offset = max(max_val * 0.03, 1)
+                for i, v in enumerate(s_vals):
+                    if v > 0:
+                        ax.text(i - bw / 2, v + offset, f'{v:,}',
+                                ha='center', va='bottom', fontsize=8, color='white', fontweight='bold')
+                for i, v in enumerate(e_vals):
+                    if v > 0:
+                        ax.text(i + bw / 2, v + offset, f'{v:,}',
+                                ha='center', va='bottom', fontsize=8, color='white', fontweight='bold')
+
+                ax.set_xticks(list(x_pos))
+                ax.set_xticklabels(labels, fontsize=9, color=TEXT_SEC_HEX)
+                ax.tick_params(axis='y', colors=TEXT_SEC_HEX, labelsize=8)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_color(BORDER_HEX)
+                ax.spines['bottom'].set_color(BORDER_HEX)
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'{int(x):,}'))
+                ax.legend(fontsize=9, loc='upper right', framealpha=0.3, labelcolor='white',
+                          facecolor='#161b22', edgecolor=BORDER_HEX)
+                ax.grid(axis='y', alpha=0.1, color=TEXT_SEC_HEX)
+                if max_val > 0:
+                    ax.set_ylim(0, max_val * 1.2)
+
+                plt.tight_layout()
+                chart_img = make_chart_image(fig, CW, chart_h_msg)
+                img.paste(chart_img, (PADDING, y), chart_img)
+            else:
+                rounded_rect(PADDING, y, CW, chart_h_msg)
+                center_text("Bu hafta mesaj verisi bulunamad\u0131", PADDING, y + chart_h_msg // 2 - 10, CW, font_regular, TEXT_SECONDARY)
+
+            y += chart_h_msg + 25
+
+            # ===== 4. IKI SUTUNLU BOLUM =====
+            col_gap = 20
+            col_w = (CW - col_gap) // 2
+            chart_h_col = 240
+
+            draw.text((PADDING, y), "AKT\u0130F \u00dcYE ORTALAMALARI", font=font_section, fill=TEXT_PRIMARY)
+            draw.text((PADDING + col_w + col_gap, y), "SAATL\u0130K AKT\u0130V\u0130TE", font=font_section, fill=TEXT_PRIMARY)
+            y += 32
+
+            # Sol: Gunluk aktif uye ortalamalari
+            if daily_avgs['samples'] > 0:
+                d_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                d_labels = ['Pzt', 'Sal', '\u00c7ar', 'Per', 'Cum', 'Cmt', 'Paz']
+                avg_vals = [daily_avgs[d] or 0 for d in d_names]
+
+                fig, ax = plt.subplots(figsize=(6.5, 3.2))
+                fig.patch.set_alpha(0)
+                ax.set_facecolor('none')
+
+                colors_daily = [CYAN_HEX] * 5 + [ACCENT_HEX] * 2
+                ax.bar(range(7), avg_vals, color=colors_daily, alpha=0.85, edgecolor='none', zorder=3)
+
+                max_avg = max(avg_vals) if avg_vals else 1
+                for i, v in enumerate(avg_vals):
+                    if v > 0:
+                        ax.text(i, v + max(max_avg * 0.03, 0.5), f'{v:.0f}',
+                                ha='center', va='bottom', fontsize=9, color='white', fontweight='bold')
+
+                ax.set_xticks(range(7))
+                ax.set_xticklabels(d_labels, fontsize=9, color=TEXT_SEC_HEX)
+                ax.tick_params(axis='y', colors=TEXT_SEC_HEX, labelsize=8)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_color(BORDER_HEX)
+                ax.spines['bottom'].set_color(BORDER_HEX)
+                ax.grid(axis='y', alpha=0.1, color=TEXT_SEC_HEX)
+                if max_avg > 0:
+                    ax.set_ylim(0, max_avg * 1.25)
+
+                plt.tight_layout()
+                left_chart = make_chart_image(fig, col_w, chart_h_col)
+                img.paste(left_chart, (PADDING, y), left_chart)
+            else:
+                rounded_rect(PADDING, y, col_w, chart_h_col)
+                center_text("Veri yok", PADDING, y + chart_h_col // 2 - 10, col_w, font_regular, TEXT_SECONDARY)
+
+            # Sag: Saatlik aktivite dagilimi
+            if presence_avgs['samples'] > 0:
+                r = presence_avgs['ranges']
+                range_labels = ['00:00 - 06:00', '06:00 - 12:00', '12:00 - 18:00', '18:00 - 00:00']
+                range_keys = ['00-06', '06-12', '12-18', '18-00']
+                range_vals = [r[k] or 0 for k in range_keys]
+                range_colors = ['#6366f1', '#f59e0b', '#22c55e', '#8b5cf6']
+
+                fig, ax = plt.subplots(figsize=(6.5, 3.2))
+                fig.patch.set_alpha(0)
+                ax.set_facecolor('none')
+
+                ax.barh(range(4), range_vals, color=range_colors, alpha=0.85, edgecolor='none', zorder=3)
+
+                max_range = max(range_vals) if range_vals else 1
+                for i, v in enumerate(range_vals):
+                    if v > 0:
+                        ax.text(v + max(max_range * 0.02, 0.3), i, f'{v:.1f}',
+                                ha='left', va='center', fontsize=9, color='white', fontweight='bold')
+
+                ax.set_yticks(range(4))
+                ax.set_yticklabels(range_labels, fontsize=9, color=TEXT_SEC_HEX)
+                ax.tick_params(axis='x', colors=TEXT_SEC_HEX, labelsize=8)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_color(BORDER_HEX)
+                ax.spines['bottom'].set_color(BORDER_HEX)
+                ax.grid(axis='x', alpha=0.1, color=TEXT_SEC_HEX)
+                ax.invert_yaxis()
+                if max_range > 0:
+                    ax.set_xlim(0, max_range * 1.25)
+
+                plt.tight_layout()
+                right_chart = make_chart_image(fig, col_w, chart_h_col)
+                img.paste(right_chart, (PADDING + col_w + col_gap, y), right_chart)
+            else:
+                rx = PADDING + col_w + col_gap
+                rounded_rect(rx, y, col_w, chart_h_col)
+                center_text("Veri yok", rx, y + chart_h_col // 2 - 10, col_w, font_regular, TEXT_SECONDARY)
+
+            y += chart_h_col + 25
+
+            # ===== 5. EN AKTIF KANALLAR =====
+            draw.text((PADDING, y), "EN AKTIF KANALLAR", font=font_section, fill=TEXT_PRIMARY)
+            y += 32
+
+            chart_h_ch = 220
+
+            if top_channels:
+                ch_names = [f"#{c['channel_name'][:25]}" for c in top_channels]
+                ch_vals = [c['total_messages'] for c in top_channels]
+                ch_colors = [ACCENT_HEX, PURPLE_HEX, CYAN_HEX, GREEN_HEX, AMBER_HEX, RED_HEX]
+
+                fig, ax = plt.subplots(figsize=(13, 3))
+                fig.patch.set_alpha(0)
+                ax.set_facecolor('none')
+
+                n = len(ch_names)
+                ax.barh(range(n), ch_vals, color=ch_colors[:n], alpha=0.85, edgecolor='none', zorder=3)
+
+                max_ch = max(ch_vals) if ch_vals else 1
+                for i, v in enumerate(ch_vals):
+                    if v > 0:
+                        ax.text(v + max(max_ch * 0.02, 1), i, f'{v:,}',
+                                ha='left', va='center', fontsize=10, color='white', fontweight='bold')
+
+                ax.set_yticks(range(n))
+                ax.set_yticklabels(ch_names, fontsize=10, color=TEXT_SEC_HEX)
+                ax.tick_params(axis='x', colors=TEXT_SEC_HEX, labelsize=8)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_color(BORDER_HEX)
+                ax.spines['bottom'].set_color(BORDER_HEX)
+                ax.grid(axis='x', alpha=0.1, color=TEXT_SEC_HEX)
+                ax.invert_yaxis()
+                if max_ch > 0:
+                    ax.set_xlim(0, max_ch * 1.3)
+                ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'{int(x):,}'))
+
+                plt.tight_layout()
+                ch_chart = make_chart_image(fig, CW, chart_h_ch)
+                img.paste(ch_chart, (PADDING, y), ch_chart)
+            else:
+                rounded_rect(PADDING, y, CW, chart_h_ch)
+                center_text("Bu hafta aktif kanal bulunamad\u0131", PADDING, y + chart_h_ch // 2 - 10, CW, font_regular, TEXT_SECONDARY)
+
+            y += chart_h_ch + 25
+
+            # ===== 6. OZET BILGILER =====
+            draw.text((PADDING, y), "\u00d6ZET B\u0130LG\u0130LER", font=font_section, fill=TEXT_PRIMARY)
+            y += 32
+
+            mini_gap = 15
+            mini_cols = 3
+            mini_w = (CW - (mini_cols - 1) * mini_gap) // mini_cols
+            mini_h = 65
+
+            online_members = len([m for m in guild.members if m.status != discord.Status.offline])
+
+            TAG_ROLE_ID = 1467145841830789367
+            tag_role = guild.get_role(TAG_ROLE_ID)
+            tag_count = len(tag_role.members) if tag_role else 0
+
+            mini_cards = [
+                ('ONLINE \u00dcYE', f"{online_members}/{guild.member_count}", ACCENT),
+                ('MET\u0130N KANALI', str(len(guild.text_channels)), CYAN),
+                ('SES KANALI', str(len(guild.voice_channels)), GREEN),
+                ('ROL SAYISI', str(len(guild.roles)), PURPLE),
+                ('TAG SAH\u0130PLER\u0130', f"{tag_count} ki\u015fi", AMBER),
+                ('MODERASYON', f"{mod_actions['total']} i\u015flem", RED),
+            ]
+
+            for i, (label, value, color) in enumerate(mini_cards):
+                col = i % mini_cols
+                row = i // mini_cols
+                mx = PADDING + col * (mini_w + mini_gap)
+                my = y + row * (mini_h + mini_gap)
+
+                rounded_rect(mx, my, mini_w, mini_h)
+                center_text(value, mx, my + 10, mini_w, font_mini_val, color)
+                center_text(label, mx, my + 42, mini_w, font_kpi_label, TEXT_SECONDARY)
+
+            rows_count = (len(mini_cards) + mini_cols - 1) // mini_cols
+            y += rows_count * (mini_h + mini_gap) + 15
+
+            # ===== FOOTER =====
+            draw.line([(PADDING, y), (WIDTH - PADDING, y)], fill=CARD_BORDER, width=1)
+            y += 15
+
+            center_text(f"{guild.name}  \u2022  Haftal\u0131k Rapor Sistemi", PADDING, y, CW, font_footer, TEXT_SECONDARY)
+
+            # ===== EXPORT =====
+            output = io.BytesIO()
+            img.save(output, format='PNG', optimize=True)
+            output.seek(0)
+
+            return output
+
+        except Exception as e:
+            print(f"Rapor gorseli olusturma hatasi: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     async def generate_weekly_report(self):
         """Haftalık raporu oluşturur ve gönderir"""
         try:
@@ -387,17 +860,33 @@ class WeeklyReports(commands.Cog):
             start_date = last_sunday.astimezone(pytz.UTC)
             end_date = current_sunday.astimezone(pytz.UTC)
             
-            # Raporu oluştur ve gönder
-            embed = await self.create_weekly_report_embed(guild, start_date, end_date)
-            
-            # Fire-and-forget: Haftalık rapor background'da gönderilir
-            asyncio.create_task(self.safe_send(
+            # Raporu oluştur ve gönder (2 embed döndürür)
+            embeds = await self.create_weekly_report_embed(guild, start_date, end_date)
+
+            # 1. Embed - Genel İstatistikler
+            await self.safe_send(
                 report_channel,
                 content="📊 **HAFTALIK SUNUCU RAPORU** 📊",
-                embed=embed
-            ))
-            
-            # Rapor task'ı başlatıldıktan sonra eski verileri temizle
+                embed=embeds[0]
+            )
+
+            # 2. Embed - Yetkili Kadro & Özet
+            if len(embeds) > 1:
+                await self.safe_send(
+                    report_channel,
+                    embed=embeds[1]
+                )
+
+            # 3. Görsel raporu oluştur ve gönder
+            try:
+                report_image = await self.create_report_image(guild, start_date, end_date)
+                if report_image:
+                    file = discord.File(report_image, filename="haftalik_rapor.png")
+                    await self.safe_send(report_channel, file=file)
+            except Exception as e:
+                print(f"Rapor görseli oluşturma/gönderme hatası: {e}")
+
+            # Rapor gönderildikten sonra eski verileri temizle
             await self.cleanup_old_data_after_report(start_date)
             
             # Weekly report sent successfully
@@ -486,8 +975,17 @@ class WeeklyReports(commands.Cog):
                 ''', (spam_cutoff.isoformat(),))
 
                 # Eski staff_changes kayıtlarını temizle (28 gün öncesi)
+                # Her yetkilinin en son rol atamasını koru
                 await cursor.execute('''
-                DELETE FROM staff_changes WHERE created_at < ?
+                DELETE FROM staff_changes
+                WHERE created_at < ?
+                AND id NOT IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+                        FROM staff_changes
+                        WHERE action IN ('added', 'promoted', 'demoted')
+                    ) WHERE rn = 1
+                )
                 ''', (cleanup_cutoff.isoformat(),))
 
                 # Eski staff_message_stats kayıtlarını temizle (28 gün öncesi)
@@ -498,6 +996,16 @@ class WeeklyReports(commands.Cog):
                     ''', (cutoff_date_str,))
                 except Exception:
                     pass
+
+                # Eski channel_message_stats kayıtlarını temizle (28 gün öncesi)
+                try:
+                    cutoff_date_str = cleanup_cutoff.date().isoformat()
+                    await cursor.execute('''
+                    DELETE FROM channel_message_stats WHERE message_date < ?
+                    ''', (cutoff_date_str,))
+                    print(f"Haftalık rapor - Eski kanal mesaj istatistikleri temizlendi")
+                except Exception as e:
+                    print(f"Kanal mesaj istatistikleri temizliği hatası: {e}")
 
                 # Eski presence snapshot'larını temizle (14 gün öncesi)
                 await cursor.execute('''
@@ -510,6 +1018,16 @@ class WeeklyReports(commands.Cog):
                 if deleted_sessions > 0:
                     print(f"Haftalık rapor - {deleted_sessions} eski online session silindi")
                 
+                # Eski voice activity session'larını temizle (2 hafta öncesi)
+                deleted_voice_sessions = await db.cleanup_old_voice_sessions(14)
+                if deleted_voice_sessions > 0:
+                    print(f"Haftalık rapor - {deleted_voice_sessions} eski voice session silindi")
+                
+                # Eski özel oda loglarını temizle (28 gün öncesi)
+                await cursor.execute('''
+                DELETE FROM private_room_logs WHERE created_at < ?
+                ''', (cleanup_cutoff.isoformat(),))
+                
                 await db.connection.commit()
                 
                                     # Cleanup completed
@@ -518,15 +1036,15 @@ class WeeklyReports(commands.Cog):
             print(f"Otomatik temizlik hatası: {e}")
     
     async def create_weekly_report_embed(self, guild, start_date, end_date):
-        """Haftalık rapor embed'ini oluşturur"""
+        """Haftalık rapor embed'lerini oluşturur (2 embed döndürür)"""
         try:
             db = await get_db()
-            
+
             # Rapor başlığı ve tarihleri
             turkey_tz = pytz.timezone('Europe/Istanbul')
             start_turkey = start_date.astimezone(turkey_tz)
             end_turkey = end_date.astimezone(turkey_tz)
-            
+
             embed = discord.Embed(
                 title="📊 Haftalık Sunucu Raporu",
                 description=f"**📅 Rapor Dönemi**\n"
@@ -591,35 +1109,50 @@ class WeeklyReports(commands.Cog):
                 # Hata durumunda sessiz geç (rapor bozulmasın)
                 print(f"Kayıt istatistikleri eklenirken hata: {e}")
             
+            # === ÖZEL ODA İSTATİSTİKLERİ ===
+            try:
+                private_room_stats = await db.get_private_room_stats(guild.id, start_date, end_date)
+                
+                if private_room_stats['total_rooms'] > 0:
+                    daily_avg = private_room_stats['total_rooms'] / 7
+                    
+                    # Toplam süreyi saat ve dakika olarak formatla
+                    total_hours = int(private_room_stats['total_hours'])
+                    total_minutes = int(private_room_stats['total_minutes'] % 60)
+                    avg_minutes = private_room_stats['average_minutes']
+                    
+                    value_text = f"**Toplam Açılan Oda:** {private_room_stats['total_rooms']}\n"
+                    value_text += f"**Günlük Ortalama:** {daily_avg:.1f} oda\n"
+                    value_text += f"**Toplam Aktif Süre:** {total_hours}s {total_minutes}dk\n"
+                    value_text += f"**Oda Başına Ortalama:** {avg_minutes:.0f} dk"
+                    
+                    embed.add_field(
+                        name="🎙️ Özel Oda Sistemi",
+                        value=value_text,
+                        inline=True
+                    )
+                else:
+                    embed.add_field(
+                        name="🎙️ Özel Oda Sistemi",
+                        value="Bu hafta özel oda açılmadı.",
+                        inline=True
+                    )
+            except Exception as e:
+                print(f"Özel oda istatistikleri eklenirken hata: {e}")
+            
             # === BUMP İSTATİSTİKLERİ ===
             # Bump verilerini al (son 7 gün)
             bump_stats = await db.get_bump_stats_by_period(guild.id, 'weekly')
             
             if bump_stats:
-                # Top 5 bumper
-                top_bumpers = []
-                for i, bumper in enumerate(bump_stats[:5], 1):
-                    user = guild.get_member(bumper['user_id'])
-                    username = user.mention if user else bumper['username']
-                    top_bumpers.append(f"**{i}.** {username} - {bumper['bump_count']} bump")
-                
                 total_bumps = sum(bumper['bump_count'] for bumper in bump_stats)
-                total_bumpers = len(bump_stats)
-                
+
                 embed.add_field(
                     name="📈 Bump İstatistikleri",
                     value=f"**Toplam Bump:** {total_bumps}\n"
-                          f"**Aktif Bumper:** {total_bumpers} kişi\n"
                           f"**Günlük Ortalama:** {total_bumps/7:.1f} bump",
                     inline=True
                 )
-                
-                if top_bumpers:
-                    embed.add_field(
-                        name="🏆 Top 5 Bumper",
-                        value="\n".join(top_bumpers),
-                        inline=False
-                    )
             else:
                 embed.add_field(
                     name="📈 Bump İstatistikleri",
@@ -702,7 +1235,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': kick['action_time'],
-                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"👢 **Atma** • {action_time} - <@{kick['user_id']}>\n└ Yetkili: <@{kick['moderator_id']}> • Sebep: {reason}"
                         })
                     
                     # Ban işlemleri
@@ -713,7 +1246,7 @@ class WeeklyReports(commands.Cog):
                             reason = reason[:47] + "..."
                         all_actions.append({
                             'time': ban['action_time'],
-                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Sebep: {reason}"
+                            'text': f"🔨 **Yasaklama** • {action_time} - <@{ban['user_id']}>\n└ Yetkili: <@{ban['moderator_id']}> • Sebep: {reason}"
                         })
                     
                     # Zamana göre sırala (en yeni önce)
@@ -746,14 +1279,188 @@ class WeeklyReports(commands.Cog):
                     inline=False
                 )
             
+            # === KANAL İSTATİSTİKLERİ - SOHBET KANALLARI ===
+            try:
+                channel_stats = await db.get_channel_stats_by_period(guild.id, start_date, end_date)
+                
+                # Sohbet kanalları
+                if channel_stats and 'sohbet' in channel_stats:
+                    sohbet = channel_stats['sohbet']
+                    lines = []
+                    
+                    # Genel istatistikler
+                    total_msg = sohbet['total_messages']
+                    active_ch = sohbet['active_channels']
+                    avg_users = sohbet['avg_unique_users_per_day']
+                    
+                    lines.append(f"**📊 Genel Özet**")
+                    lines.append(f"• Toplam Mesaj: **{total_msg:,}**")
+                    lines.append(f"• Aktif Kanal: **{active_ch}**")
+                    lines.append(f"• Günlük Ort. Aktif Kullanıcı: **{avg_users:.1f}**")
+                    
+                    # En aktif kanallar (top 5)
+                    if sohbet['channels']:
+                        lines.append(f"\n**🔥 En Aktif Kanallar**")
+                        for i, ch in enumerate(sohbet['channels'][:5], 1):
+                            ch_name = ch['channel_name']
+                            ch_msg = ch['total_messages']
+                            percentage = (ch_msg / total_msg * 100) if total_msg > 0 else 0
+                            
+                            # Emoji'ler
+                            if i == 1:
+                                emoji = "🥇"
+                            elif i == 2:
+                                emoji = "🥈"
+                            elif i == 3:
+                                emoji = "🥉"
+                            else:
+                                emoji = "▪️"
+                            
+                            lines.append(f"{emoji} #{ch_name}: **{ch_msg:,}** mesaj ({percentage:.1f}%)")
+                    
+                    # Günlük dağılım (grafiksel)
+                    if sohbet.get('daily_breakdown'):
+                        lines.append(f"\n**📅 Günlük Dağılım**")
+                        
+                        # Türkçe gün isimleri
+                        daily_data = sohbet['daily_breakdown']
+                        max_daily = max([d['message_count'] for d in daily_data]) if daily_data else 1
+                        
+                        for day_data in daily_data:
+                            date_obj = datetime.datetime.strptime(day_data['date'], '%Y-%m-%d')
+                            date_turkey = date_obj.replace(tzinfo=pytz.UTC).astimezone(self.turkey_tz)
+                            day_name = date_turkey.strftime('%d.%m (%a)')
+                            
+                            msg_count = day_data['message_count']
+                            bar_length = int((msg_count / max_daily) * 10) if max_daily > 0 else 0
+                            bar = "█" * bar_length + "░" * (10 - bar_length)
+                            
+                            lines.append(f"`{day_name}` {bar} **{msg_count:,}**")
+                    
+                    embed.add_field(
+                        name="💬 Sohbet Kanalları",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    # Sohbet kanallarında veri yok
+                    embed.add_field(
+                        name="💬 Sohbet Kanalları",
+                        value="Bu hafta sohbet kanallarında aktivite tespit edilmedi.",
+                        inline=False
+                    )
+                    
+            except Exception as e:
+                print(f"Sohbet kanalı istatistikleri eklenirken hata: {e}")
+                embed.add_field(
+                    name="💬 Sohbet Kanalları",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # === KANAL İSTATİSTİKLERİ - EĞLENCE KANALLARI ===
+            try:
+                channel_stats = await db.get_channel_stats_by_period(guild.id, start_date, end_date)
+                
+                # Eğlence kanalları
+                if channel_stats and 'eglence' in channel_stats:
+                    eglence = channel_stats['eglence']
+                    lines = []
+                    
+                    # Genel istatistikler
+                    total_msg = eglence['total_messages']
+                    active_ch = eglence['active_channels']
+                    avg_users = eglence['avg_unique_users_per_day']
+                    
+                    lines.append(f"**📊 Genel Özet**")
+                    lines.append(f"• Toplam Mesaj: **{total_msg:,}**")
+                    lines.append(f"• Aktif Kanal: **{active_ch}**")
+                    lines.append(f"• Günlük Ort. Aktif Kullanıcı: **{avg_users:.1f}**")
+                    
+                    # En aktif kanallar (top 5)
+                    if eglence['channels']:
+                        lines.append(f"\n**🔥 En Aktif Kanallar**")
+                        for i, ch in enumerate(eglence['channels'][:5], 1):
+                            ch_name = ch['channel_name']
+                            ch_msg = ch['total_messages']
+                            percentage = (ch_msg / total_msg * 100) if total_msg > 0 else 0
+                            
+                            # Emoji'ler
+                            if i == 1:
+                                emoji = "🥇"
+                            elif i == 2:
+                                emoji = "🥈"
+                            elif i == 3:
+                                emoji = "🥉"
+                            else:
+                                emoji = "▪️"
+                            
+                            lines.append(f"{emoji} #{ch_name}: **{ch_msg:,}** mesaj ({percentage:.1f}%)")
+                    
+                    # Günlük dağılım (grafiksel)
+                    if eglence.get('daily_breakdown'):
+                        lines.append(f"\n**📅 Günlük Dağılım**")
+                        
+                        daily_data = eglence['daily_breakdown']
+                        max_daily = max([d['message_count'] for d in daily_data]) if daily_data else 1
+                        
+                        for day_data in daily_data:
+                            date_obj = datetime.datetime.strptime(day_data['date'], '%Y-%m-%d')
+                            date_turkey = date_obj.replace(tzinfo=pytz.UTC).astimezone(self.turkey_tz)
+                            day_name = date_turkey.strftime('%d.%m (%a)')
+                            
+                            msg_count = day_data['message_count']
+                            bar_length = int((msg_count / max_daily) * 10) if max_daily > 0 else 0
+                            bar = "█" * bar_length + "░" * (10 - bar_length)
+                            
+                            lines.append(f"`{day_name}` {bar} **{msg_count:,}**")
+                    
+                    embed.add_field(
+                        name="🎮 Eğlence Kanalları",
+                        value="\n".join(lines)[:1024],
+                        inline=False
+                    )
+                else:
+                    # Eğlence kanallarında veri yok
+                    embed.add_field(
+                        name="🎮 Eğlence Kanalları",
+                        value="Bu hafta eğlence kanallarında aktivite tespit edilmedi.",
+                        inline=False
+                    )
+                    
+            except Exception as e:
+                print(f"Eğlence kanalı istatistikleri eklenirken hata: {e}")
+                embed.add_field(
+                    name="🎮 Eğlence Kanalları",
+                    value=f"Bilgiler alınamadı: {e}",
+                    inline=False
+                )
+            
+            # Footer ve thumbnail (1. embed)
+            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+            embed.set_footer(
+                text=f"{guild.name} • Haftalık Rapor Sistemi (1/2)",
+                icon_url=guild.icon.url if guild.icon else None
+            )
+
+            # ============================================================
+            # 2. EMBED - Yetkili Kadro & Özet Bilgiler
+            # ============================================================
+            embed2 = discord.Embed(
+                title="📊 Haftalık Sunucu Raporu — Yetkili Kadro & Özet",
+                color=0x2b82ff,
+                timestamp=datetime.datetime.now(self.turkey_tz)
+            )
+
             # === AKTİF YETKİLİ KADRO (Mesaj İstatistikleri, Çevrim İçi Saatleri ve Bump Sayıları) ===
             try:
                 # Sadece KURUCU ve YK BAŞKANI hariç tutulacak (tüm diğer yetkililer dahil)
                 excluded_role_ids = {
                     1029089723110674463,  # KURUCU
+                    1459975838853238897,  # KURUCU YARDIMCISI
                     1029089727061692522,  # YK BAŞKANI
                 }
-                
+
                 # Dahil edilecek yetkili rol ID'leri (YETKİLİ_HİYERARSİ'den çek)
                 try:
                     from cogs.yetkili_panel import YETKILI_HIYERARSI
@@ -764,149 +1471,238 @@ class WeeklyReports(commands.Cog):
                         1163918714081644554,  # STAJYER
                         1200919832393154680,  # ASİSTAN
                         1163918107501412493,  # MODERATÖR
+                        1460021463607152703,  # KIDEMLİ MODERATÖR
                         1163918130192580608,  # ADMİN
                         1412843482980290711,  # YÖNETİM KURULU ADAYLARI
                         1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
                     }
-                
+
+                # Yetkili rol atama tarihlerini al
+                staff_role_dates = await db.get_staff_current_role_dates(guild.id)
+
                 # Veritabanından tüm yetkili mesaj verilerini al
                 message_stats = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
-                
+
                 # Yetkili çevrim içi saatleri verilerini al
                 staff_online_stats = await db.get_staff_online_stats(guild.id, start_date, end_date)
-                
-                # Bump istatistiklerini al (haftalık için özel sorgu)
-                # start_date ve end_date arasındaki bump verilerini al
-                bump_user_stats = {}
-                async with db.connection.cursor() as cursor:
-                    await cursor.execute('''
-                    SELECT user_id, COUNT(*) as bump_count
-                    FROM bump_logs
-                    WHERE guild_id = ? AND bump_time >= ? AND bump_time < ?
-                    GROUP BY user_id
-                    ''', (guild.id, start_date.isoformat(), end_date.isoformat()))
-                    
-                    rows = await cursor.fetchall()
-                    for row in rows:
-                        bump_user_stats[row[0]] = row[1]
-                
+
+                # Ses kanalı aktivite verilerini al
+                voice_activity_stats = await db.get_voice_activity_stats(guild.id, start_date, end_date)
+
                 def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in included_role_ids)
-                
+
                 def is_excluded(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in excluded_role_ids)
-                
+
                 # Mesaj istatistiklerini dictionary'ye çevir
                 message_stats_dict = {stat['user_id']: stat['total_messages'] for stat in message_stats}
-                
+
                 # Online saatleri dictionary'ye çevir
                 online_stats_dict = {stat['user_id']: stat for stat in staff_online_stats}
-                
+
+                # Ses kanalı saatlerini dictionary'ye çevir
+                voice_stats_dict = {stat['user_id']: stat for stat in voice_activity_stats}
+
+                # Yetkili rol hiyerarşisi (yüksekten düşüğe) ve kısa adları
+                role_hierarchy = [
+                    (1029089731314720798, "YK Üyesi"),
+                    (1412843482980290711, "YK Adayı"),
+                    (1163918130192580608, "Admin"),
+                    (1460021463607152703, "K.Mod"),
+                    (1163918107501412493, "Mod"),
+                    (1200919832393154680, "Asistan"),
+                    (1163918714081644554, "Stajyer"),
+                ]
+
+                def get_highest_staff_role(member):
+                    """Üyenin en yüksek yetkili rolünü döndürür"""
+                    user_role_ids = {r.id for r in member.roles}
+                    for role_id, role_name in role_hierarchy:
+                        if role_id in user_role_ids:
+                            return role_name
+                    return "Yetkili"
+
+                def format_role_duration(member_id):
+                    """Rol süresini okunabilir formata çevirir"""
+                    role_data = staff_role_dates.get(member_id)
+                    if not role_data or not role_data['assigned_at']:
+                        return None
+                    try:
+                        assigned_at = datetime.datetime.fromisoformat(role_data['assigned_at'])
+                        if assigned_at.tzinfo is None:
+                            assigned_at = assigned_at.replace(tzinfo=pytz.UTC)
+                        now = datetime.datetime.now(pytz.UTC)
+                        delta = now - assigned_at
+                        return f"{delta.days} gün"
+                    except Exception:
+                        return None
+
                 # Tüm yetkililer için results listesi oluştur
                 results = []
-                
+
                 # Sunucudaki tüm üyeleri kontrol et
                 for member in guild.members:
                     if not is_included_staff(member):
                         continue
                     if is_excluded(member):
                         continue
-                    
+
                     # Mesaj sayısını al (yoksa 0)
                     msg_count = message_stats_dict.get(member.id, 0)
-                    
+
                     # Online istatistiklerini al
                     online_data = online_stats_dict.get(member.id, {
                         'total_hours': 0,
                         'daily_average': 0
                     })
-                    
-                    # Bump sayısını al (yoksa 0)
-                    bump_count = bump_user_stats.get(member.id, 0)
-                    
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count))
-                
-                # Sırala (mesaj sayısına göre, sonra online saatlere göre, sonra bump sayısına göre)
-                results.sort(key=lambda x: (x[1], x[2], x[4]), reverse=True)
-                
+
+                    # Ses kanalı saatlerini al (yoksa 0)
+                    voice_data = voice_stats_dict.get(member.id, {
+                        'total_hours': 0,
+                        'total_minutes': 0
+                    })
+
+                    # Rol bilgisi ve süre
+                    role_name = get_highest_staff_role(member)
+                    role_duration = format_role_duration(member.id)
+                    role_info = f"{role_name} ({role_duration})" if role_duration else role_name
+
+                    score = self.calculate_staff_score(msg_count, online_data['total_hours'], voice_data['total_hours'])
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], voice_data['total_hours'], score, role_info))
+
+                # Puana göre sırala (yüksekten düşüğe)
+                results.sort(key=lambda x: x[5], reverse=True)
+
                 if results:
-                    lines = []
-                    for i, (member, msg_count, online_hours, daily_avg, bump_count) in enumerate(results, 1):
-                        lines.append(f"**{i}.** {member.mention} - {msg_count} mesaj • {online_hours:.1f}h online • {bump_count} bump")
-                    
-                    # Çok uzunsa bölümlere ayır
-                    if len(lines) > 20:
-                        # İlk 20'yi göster, kalanları say
-                        first_20 = lines[:20]
-                        remaining_count = len(lines) - 20
-                        first_20.append(f"\n*...ve {remaining_count} yetkili daha*")
-                        lines = first_20
-                    
-                    embed.add_field(
-                        name=f"👥 Aktif Yetkili Kadro - Mesaj, Online & Bump ({len(results)} kişi)",
-                        value="\n".join(lines),
-                        inline=False
-                    )
+                    all_lines = []
+                    for i, (member, msg_count, online_hours, daily_avg, voice_hours, score, role_info) in enumerate(results, 1):
+                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses")
+
+                    # Satırları 1024 karakter limitine göre field'lara böl
+                    chunks = []
+                    current_chunk = []
+                    current_length = 0
+
+                    for line in all_lines:
+                        line_length = len(line) + 1  # +1 for \n
+                        if current_length + line_length > 1024 and current_chunk:
+                            chunks.append("\n".join(current_chunk))
+                            current_chunk = [line]
+                            current_length = len(line)
+                        else:
+                            current_chunk.append(line)
+                            current_length += line_length
+
+                    if current_chunk:
+                        chunks.append("\n".join(current_chunk))
+
+                    # İlk chunk ana başlıkla, diğerleri devam başlığıyla
+                    for idx, chunk in enumerate(chunks):
+                        if idx == 0:
+                            field_name = f"👥 Aktif Yetkili Kadro ({len(results)} kişi)"
+                        else:
+                            field_name = f"👥 Yetkili Kadro (devam {idx + 1}/{len(chunks)})"
+
+                        embed2.add_field(
+                            name=field_name,
+                            value=chunk,
+                            inline=False
+                        )
                 else:
-                    embed.add_field(
-                        name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
+                    embed2.add_field(
+                        name="👥 Aktif Yetkili Kadro",
                         value="Bu hafta yetkili kadrosunda aktivite bulunamadı.",
                         inline=False
                     )
             except Exception as e:
-                embed.add_field(
-                    name="👥 Aktif Yetkili Kadro - Mesaj, Online & Bump",
+                embed2.add_field(
+                    name="👥 Aktif Yetkili Kadro",
                     value=f"Bilgiler alınamadı: {e}",
                     inline=False
                 )
-            
-            # Son Aktiviteler bölümü kaldırıldı
-            
+
+            # === YETKİLİ DAĞILIMI ===
+            try:
+                yetkili_rolleri = [
+                    ("YK Üyeleri", 1029089731314720798),
+                    ("YK Adayları", 1412843482980290711),
+                    ("Admin", 1163918130192580608),
+                    ("Kıdemli Moderatör", 1460021463607152703),
+                    ("Moderatör", 1163918107501412493),
+                    ("Asistan", 1200919832393154680),
+                    ("Stajyer", 1163918714081644554),
+                ]
+
+                dist_lines = []
+                toplam_yetkili = 0
+                for rol_adi, rol_id in yetkili_rolleri:
+                    role = guild.get_role(rol_id)
+                    count = len(role.members) if role else 0
+                    toplam_yetkili += count
+                    dist_lines.append(f"**{rol_adi}:** {count} kişi")
+
+                dist_lines.append(f"\n**Toplam Yetkili:** {toplam_yetkili} kişi")
+
+                embed2.add_field(
+                    name="🛡️ Yetkili Dağılımı",
+                    value="\n".join(dist_lines),
+                    inline=True
+                )
+            except Exception as e:
+                print(f"Yetkili dağılımı eklenirken hata: {e}")
+
             # === SUNUCU BİLGİLERİ ===
             online_members = len([m for m in guild.members if m.status != discord.Status.offline])
-            
-            embed.add_field(
+
+            # Tag sahiplerini say (HRN tag rolü)
+            TAG_ROLE_ID = 1467145841830789367
+            tag_role = guild.get_role(TAG_ROLE_ID)
+            tag_count = len(tag_role.members) if tag_role else 0
+
+            embed2.add_field(
                 name="ℹ️ Genel Bilgiler",
                 value=f"**Online Üye:** {online_members}/{guild.member_count}\n"
                       f"**Metin Kanalı:** {len(guild.text_channels)}\n"
                       f"**Ses Kanalı:** {len(guild.voice_channels)}\n"
-                      f"**Rol Sayısı:** {len(guild.roles)}",
+                      f"**Rol Sayısı:** {len(guild.roles)}\n"
+                      f"**Tag Sahipleri:** {tag_count} kişi",
                 inline=True
             )
 
             # === AKTİF KULLANICI ORTALAMALARI ===
             presence_snaps = await db.get_presence_snapshots(guild.id, start_date, end_date)
-            
+
             # Günlük ortalamalar
             daily_stats = self._compute_daily_averages(presence_snaps, turkey_tz)
             if daily_stats['samples'] > 0:
                 def fmt(v):
                     return f"{v:.1f}" if v is not None else "-"
-                
+
                 # Türkçe gün isimleri
                 day_names_tr = {
                     'monday': 'Pazartesi',
-                    'tuesday': 'Salı', 
+                    'tuesday': 'Salı',
                     'wednesday': 'Çarşamba',
                     'thursday': 'Perşembe',
                     'friday': 'Cuma',
                     'saturday': 'Cumartesi',
                     'sunday': 'Pazar'
                 }
-                
+
                 daily_lines = []
                 for day_en, day_tr in day_names_tr.items():
                     avg_val = daily_stats[day_en]
                     daily_lines.append(f"**{day_tr}:** {fmt(avg_val)}")
-                
-                embed.add_field(
+
+                embed2.add_field(
                     name="📅 Günlük Aktif Üye Ortalamaları",
                     value="\n".join(daily_lines),
                     inline=True
                 )
-            
+
             # Saatlik ortalamalar
             presence_stats = self._compute_presence_averages(presence_snaps, turkey_tz)
             if presence_stats['samples'] > 0:
@@ -922,29 +1718,29 @@ class WeeklyReports(commands.Cog):
                     f"**Gece (18-06):** {fmt(presence_stats['night'])}",
                     f"**Genel Ortalama:** {fmt(presence_stats['overall'])}",
                 ]
-                embed.add_field(
+                embed2.add_field(
                     name="🕐 Saatlik Aktif Üye Ortalamaları",
                     value="\n".join(lines),
                     inline=True
                 )
-            
-            # Footer ve thumbnail
-            embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-            embed.set_footer(
-                text=f"{guild.name} • Haftalık Rapor Sistemi",
+
+            # Footer ve thumbnail (2. embed)
+            embed2.set_thumbnail(url=guild.icon.url if guild.icon else None)
+            embed2.set_footer(
+                text=f"{guild.name} • Haftalık Rapor Sistemi (2/2)",
                 icon_url=guild.icon.url if guild.icon else None
             )
-            
-            return embed
-            
+
+            return [embed, embed2]
+
         except Exception as e:
             print(f"Rapor embed oluşturma hatası: {e}")
             # Hata durumunda basit embed döndür
-            return discord.Embed(
+            return [discord.Embed(
                 title="❌ Rapor Hatası",
                 description="Haftalık rapor oluşturulurken bir hata oluştu.",
                 color=discord.Color.red()
-            )
+            )]
 
 
 async def setup(bot):

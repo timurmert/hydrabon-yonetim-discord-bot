@@ -63,20 +63,60 @@ class BumpLogView(discord.ui.View):
         if panel_cog is None:
             return await interaction.response.send_message("Yetkili panel modülü bulunamadı.", ephemeral=True)
 
-        # Bu bir bileşen etkileşimi; önce güncellemeyi defer et, sonra ana paneli düzenle
-        try:
-            await interaction.response.defer_update()
-        except Exception:
-            pass
+        from cogs.yetkili_panel import YetkiliPanelView
 
-        try:
-            await panel_cog.show_main_panel(interaction)
-        except Exception as e:
-            # Her ihtimale karşı hata durumunda kullanıcıya bilgi ver
-            try:
-                await interaction.followup.send(f"Geri dönüş sırasında bir hata oluştu: {e}", ephemeral=True)
-            except Exception:
-                pass
+        embed = discord.Embed(
+            title="\U0001f6e1\ufe0f HydRaboN Yetkili Paneli",
+            description=(
+                "Ho\u015f geldiniz! Bu panel \u00fczerinden yetkili i\u015flemlerini ger\u00e7ekle\u015ftirebilirsiniz.\n\n"
+                "L\u00fctfen yapmak istedi\u011finiz i\u015flemi a\u015fa\u011f\u0131daki butonlardan se\u00e7in."
+            ),
+            color=0x3498db
+        )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+        embed.set_footer(text=f"{interaction.guild.name} \u2022 {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+        view = YetkiliPanelView(panel_cog, interaction.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+class BumpStatsResultView(discord.ui.View):
+    """Bump istatistik sonuçları için geri dön butonu içeren view"""
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.secondary, emoji="◀️", row=0)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = discord.Embed(
+            title="\U0001f4ca Bump \u0130statistikleri",
+            description=(
+                "Yetkililerin bump komutunu kullanma istatistiklerini g\u00f6r\u00fcnt\u00fclemek i\u00e7in "
+                "a\u015fa\u011f\u0131daki butonlardan birini se\u00e7ebilirsiniz.\n\n"
+                "**G\u00fcnl\u00fck**: Son 24 saat i\u00e7indeki bump istatistikleri\n"
+                "**Haftal\u0131k**: Son 7 g\u00fcn i\u00e7indeki bump istatistikleri\n"
+                "**2 Haftal\u0131k**: Son 14 g\u00fcn i\u00e7indeki bump istatistikleri\n"
+                "**Ayl\u0131k**: Son 30 g\u00fcn i\u00e7indeki bump istatistikleri"
+            ),
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+        embed.set_footer(text=f"{interaction.guild.name} \u2022 {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+        view = BumpLogView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
 class BumpTracker(commands.Cog):
     def __init__(self, bot):
@@ -89,6 +129,7 @@ class BumpTracker(commands.Cog):
             1163918714081644554,  # STAJYER
             1200919832393154680,  # ASİSTAN
             1163918107501412493,  # MODERATÖR
+            1460021463607152703,  # KIDEMLİ MODERATÖR
             1163918130192580608,  # ADMİN
             1412843482980290711,  # YÖNETİM KURULU ADAYLARI
             1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
@@ -118,11 +159,6 @@ class BumpTracker(commands.Cog):
         for role in member.roles:
             if role.id in self.YETKILI_ROLLERI:
                 return True
-        return False
-    
-    async def check_last_message_is_disboard(self, channel):
-        async for message in channel.history(limit=1):
-            return message.author.id == self.DISBOARD_BOT_ID
         return False
     
     async def get_bump_count(self, user_id, guild_id):
@@ -162,66 +198,87 @@ class BumpTracker(commands.Cog):
             print(f"Veritabanı hatası (add_bump): {e}")
             raise
     
-    @app_commands.command(
-        name="bump", 
-        description="Yetkili bump sayınızı günceller"
-    )
-    async def bump_command(self, interaction: discord.Interaction):
-        if interaction.channel_id != self.BUMP_CHANNEL_ID:
-            return await interaction.response.send_message(
-                "Bu komutu sadece bump kanalında kullanabilirsiniz!",
-                ephemeral=True
-            )
-        
-        if not self.is_staff(interaction.user):
-            return await interaction.response.send_message(
-                "Bu komutu sadece yetkililer kullanabilir!",
-                ephemeral=True
-            )
-        
-        channel = interaction.channel
-        is_disboard_last = await self.check_last_message_is_disboard(channel)
-        
-        if not is_disboard_last:
-            return await interaction.response.send_message(
-                "Bu komutu kullanabilmek için son mesajın DISBOARD botuna ait olması gerekiyor!",
-                ephemeral=True
-            )
-        
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """DISBOARD botunun başarılı bump yanıtını algılayıp otomatik bump kaydı oluşturur."""
+        # Sadece DISBOARD botunun bump kanalındaki mesajlarını dinle
+        if message.author.id != self.DISBOARD_BOT_ID:
+            return
+        if message.channel.id != self.BUMP_CHANNEL_ID:
+            return
+
+        # Başarılı bump mesajını kontrol et
+        is_successful_bump = False
+        if message.embeds:
+            for embed in message.embeds:
+                desc = (embed.description or "").lower()
+                # Türkçe: "Öne çıkarma başarılı", İngilizce: "Bump done"
+                if "öne çıkarma başarılı" in desc or "bump done" in desc:
+                    is_successful_bump = True
+                    break
+
+        if not is_successful_bump:
+            return
+
+        # Bump yapan kullanıcıyı DISBOARD'un interaction metadata'sından al
+        bump_user = None
+        if hasattr(message, 'interaction_metadata') and message.interaction_metadata:
+            bump_user = message.interaction_metadata.user
+        elif hasattr(message, 'interaction') and message.interaction:
+            bump_user = message.interaction.user
+
+        if bump_user is None:
+            print(f"[BumpTracker] DISBOARD bump algılandı ancak kullanıcı tespit edilemedi. "
+                  f"interaction={getattr(message, 'interaction', None)}, "
+                  f"interaction_metadata={getattr(message, 'interaction_metadata', None)}")
+            return
+
+        # Guild member objesini al (roller için gerekli)
+        guild = message.guild
+        if guild is None:
+            return
+
+        member = guild.get_member(bump_user.id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(bump_user.id)
+            except Exception:
+                return
+
+        # Yetkili kontrolü
+        if not self.is_staff(member):
+            return
+
+        # Bump kaydını oluştur
         try:
-            await interaction.response.defer()
-            
-            user = interaction.user
-            guild_id = interaction.guild_id
-            bump_count = await self.add_bump(user.id, user.display_name, guild_id)
-            
+            bump_count = await self.add_bump(member.id, member.display_name, guild.id)
+
             embed = discord.Embed(
                 title="🚀 Bump Sayınız Güncellendi!",
-                description=f"{user.mention} yeni bir bump gerçekleştirdi!",
+                description=f"{member.mention} yeni bir bump gerçekleştirdi!",
                 color=discord.Color.green()
             )
-            
+
             embed.add_field(
                 name="Toplam Bump Sayısı",
                 value=f"**{bump_count}** kez bump yapmış!",
                 inline=False
             )
-            
-            embed.set_thumbnail(url=user.display_avatar.url)
-            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
-            
-            await interaction.followup.send(embed=embed)
-            
+
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
+
+            await message.channel.send(embed=embed)
+
             # Kurucu arka arkaya 2 bump kontrolü ve uyarı
             try:
-                await self.check_consecutive_founder_bumps_and_notify(interaction.guild, user)
+                await self.check_consecutive_founder_bumps_and_notify(guild, member)
             except Exception:
                 pass
 
         except Exception as e:
-            print(f"Bump kaydetme hatası: {e}")
-            await interaction.followup.send("Bump işlemi sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.", ephemeral=True)
-    
+            print(f"Otomatik bump kaydetme hatası: {e}")
+
     @app_commands.command(
         name="bump-log", 
         description="Yetkililerin bump komutunu kullanma istatistiklerini gösterir"
@@ -349,7 +406,9 @@ class BumpTracker(commands.Cog):
             icon_url=interaction.guild.icon.url if interaction.guild.icon else None
         )
         
-        await interaction.response.edit_message(embed=embed)
+        view = BumpStatsResultView(self, interaction.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
     @tasks.loop(minutes=30)
     async def bump_inactivity_task(self):

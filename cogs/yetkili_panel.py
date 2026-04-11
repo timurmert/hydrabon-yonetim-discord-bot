@@ -17,10 +17,12 @@ YETKILI_ROLLERI = {
     "STAJYER": 1163918714081644554,
     "ASİSTAN": 1200919832393154680,
     "MODERATÖR": 1163918107501412493,
+    "KIDEMLİ MODERATÖR": 1460021463607152703,
     "ADMİN": 1163918130192580608,
     "YÖNETİM KURULU ADAYLARI": 1412843482980290711,
     "YÖNETİM KURULU ÜYELERİ": 1029089731314720798,
     "YÖNETİM KURULU BAŞKANI": 1029089727061692522,
+    "KURUCU YARDIMCISI": 1459975838853238897,
     "KURUCU": 1029089723110674463
 }
 
@@ -29,10 +31,12 @@ YETKILI_HIYERARSI = [
     1163918714081644554,  # STAJYER
     1200919832393154680,  # ASİSTAN
     1163918107501412493,  # MODERATÖR
+    1460021463607152703,  # KIDEMLİ MODERATÖR
     1163918130192580608,  # ADMİN
     1412843482980290711,  # YÖNETİM KURULU ADAYLARI
     1029089731314720798,  # YÖNETİM KURULU ÜYELERİ
     1029089727061692522,  # YÖNETİM KURULU BAŞKANI
+    1459975838853238897,  # KURUCU YARDIMCISI
     1029089723110674463   # KURUCU
 ]
 
@@ -41,11 +45,30 @@ MANAGEMENT_ALLOWED_ROLE_IDS = [
     YETKILI_ROLLERI["YÖNETİM KURULU ADAYLARI"],
     YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"],
     YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"],
+    YETKILI_ROLLERI["KURUCU YARDIMCISI"],
     YETKILI_ROLLERI["KURUCU"],
 ]
 
+YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
+
 def user_has_management_permission(user: discord.Member) -> bool:
     return any(role.id in MANAGEMENT_ALLOWED_ROLE_IDS for role in user.roles)
+
+def user_has_moderator_permission(user: discord.Member) -> bool:
+    """Kullanıcının Moderatör veya daha üst bir yetkili rolüne sahip olup olmadığını kontrol eder."""
+    moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
+    for i, rol_id in enumerate(YETKILI_HIYERARSI):
+        if i >= moderator_index and any(r.id == rol_id for r in user.roles):
+            return True
+    return False
+
+def yetersiz_yetki_embed(gereken_yetki: str) -> discord.Embed:
+    """Standart yetersiz yetki hata embed'i oluşturur."""
+    return discord.Embed(
+        title="⚠️ Yetersiz Yetki",
+        description=f"Bu özelliği kullanabilmek için en az {gereken_yetki} yetkisine sahip olmanız gerekiyor.",
+        color=discord.Color.red()
+    )
 
 # Komutlar için dekoratör
 def guild_only():
@@ -56,6 +79,123 @@ def guild_only():
             return False
         return True
     return app_commands.check(predicate)
+
+def create_main_panel_embed(guild):
+    """Ana yetkili paneli embed'ini oluşturur. Tekrarlanan kodu önler."""
+    embed = discord.Embed(
+        title="🛡️ HydRaboN Yetkili Paneli",
+        description=(
+            "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
+            "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
+        ),
+        color=0x3498db
+    )
+    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+    embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+    return embed
+
+# Tag rol ID'si (HRN tag)
+TAG_ROLE_ID = 1467145841830789367
+
+# Yetkili İşlemleri embed'i için rol sıralaması (en yüksekten en düşüğe)
+YETKILI_KADRO_ROLLERI = [
+    ("KURUCU", YETKILI_ROLLERI["KURUCU"]),
+    ("KURUCU YARDIMCISI", YETKILI_ROLLERI["KURUCU YARDIMCISI"]),
+    ("YK BAŞKANI", YETKILI_ROLLERI["YÖNETİM KURULU BAŞKANI"]),
+    ("YK ÜYELERİ", YETKILI_ROLLERI["YÖNETİM KURULU ÜYELERİ"]),
+    ("YK ADAYLARI", YETKILI_ROLLERI["YÖNETİM KURULU ADAYLARI"]),
+    ("ADMİN", YETKILI_ROLLERI["ADMİN"]),
+    ("KIDEMLİ MODERATÖR", YETKILI_ROLLERI["KIDEMLİ MODERATÖR"]),
+    ("MODERATÖR", YETKILI_ROLLERI["MODERATÖR"]),
+    ("ASİSTAN", YETKILI_ROLLERI["ASİSTAN"]),
+    ("STAJYER", YETKILI_ROLLERI["STAJYER"]),
+]
+
+def _get_status_emoji(member: discord.Member) -> str:
+    """Üyenin online durumuna göre emoji döndürür."""
+    status_map = {
+        discord.Status.online: "🟢",
+        discord.Status.idle: "🟡",
+        discord.Status.dnd: "🔴",
+        discord.Status.offline: "⚫",
+    }
+    return status_map.get(member.status, "⚫")
+
+async def build_yetkili_kadro_embed(guild: discord.Guild) -> discord.Embed:
+    """Yetkili İşlemleri sayfası için tüm yetkililer rol rol listelenir."""
+    turkey_tz = pytz.timezone('Europe/Istanbul')
+    tag_role = guild.get_role(TAG_ROLE_ID)
+    tag_member_ids = {m.id for m in tag_role.members} if tag_role else set()
+
+    # Bir üyenin hangi role ait olduğunu bul (en yüksek yetkili rolü)
+    # Aynı üye birden fazla rol grubunda görünmesin
+    assigned_members = set()
+
+    embed = discord.Embed(
+        title="🛡️ Yetkili İşlemleri — Yetkili Kadro",
+        description="Tüm yetkililer rol bazında aşağıda listelenmiştir.\nLütfen yapmak istediğiniz işlemi alt butonlardan seçin.",
+        color=0x3498db,
+    )
+    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+
+    toplam_yetkili = 0
+
+    for rol_adi, rol_id in YETKILI_KADRO_ROLLERI:
+        role = guild.get_role(rol_id)
+        if not role:
+            continue
+
+        # Bu role sahip, henüz üst rolde listelenmemiş üyeleri al
+        members = [m for m in role.members if m.id not in assigned_members]
+        if not members:
+            embed.add_field(
+                name=f"{'─' * 2} {rol_adi} (0) {'─' * 2}",
+                value="Kimse yok",
+                inline=False,
+            )
+            continue
+
+        # Üyeleri online durumuna göre sırala (online > idle > dnd > offline)
+        status_order = {discord.Status.online: 0, discord.Status.idle: 1, discord.Status.dnd: 2, discord.Status.offline: 3}
+        members.sort(key=lambda m: status_order.get(m.status, 4))
+
+        lines = []
+        for member in members:
+            assigned_members.add(member.id)
+            status_emoji = _get_status_emoji(member)
+            tag_status = "Var" if member.id in tag_member_ids else "Yok"
+            lines.append(f"{status_emoji} {member.mention} — Tag: **{tag_status}**")
+
+        toplam_yetkili += len(members)
+
+        # 1024 karakter limiti kontrolü - field'ları böl
+        field_title = f"{'─' * 2} {rol_adi} ({len(members)}) {'─' * 2}"
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for line in lines:
+            line_len = len(line) + 1
+            if current_length + line_len > 1024 and current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = [line]
+                current_length = len(line)
+            else:
+                current_chunk.append(line)
+                current_length += line_len
+
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+
+        for idx, chunk in enumerate(chunks):
+            name = field_title if idx == 0 else f"{rol_adi} (devam)"
+            embed.add_field(name=name, value=chunk, inline=False)
+
+    embed.set_footer(
+        text=f"Toplam Yetkili: {toplam_yetkili} | {guild.name} • {datetime.datetime.now(turkey_tz).strftime('%d.%m.%Y %H:%M')}"
+    )
+
+    return embed
 
 class YetkiliIslemleriView(discord.ui.View):
     def __init__(self, cog, user, yetkili_rol_id):
@@ -112,20 +252,8 @@ class YetkiliIslemleriView(discord.ui.View):
         """Geri dön butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -158,25 +286,14 @@ class YetkiliPanelView(discord.ui.View):
         """Yetkili işlemleri butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
+
         # Yönetim izin kontrolü: YK Üyeleri, YK Başkanı ve Kurucu dışındaki herkes engellenir
         if not user_has_management_permission(interaction.user):
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description=(
-                    "Bu işlem için yetkiniz yetersiz."
-                ),
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
 
-        # Yetkili işlemleri alt menüsünü göster
+        # Yetkili işlemleri alt menüsünü göster - tüm yetkililer rol rol listelenir
         view = YetkiliIslemleriView(self.cog, self.user, self.yetkili_rol_id)
-        embed = discord.Embed(
-            title="🛡️ Yetkili İşlemleri",
-            description="Yetkili işlemleri menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
-            color=0x3498db
-        )
+        embed = await build_yetkili_kadro_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed, view=view)
     
     @discord.ui.button(label="Başvurular", style=discord.ButtonStyle.blurple, emoji="📝", row=0)
@@ -184,7 +301,11 @@ class YetkiliPanelView(discord.ui.View):
         """Başvurular butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
+
+        # Moderatör veya daha üstü rol kontrolü
+        if not user_has_moderator_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
+
         # Başvurular alt menüsünü göster
         view = BasvurularView(self.cog, self.user)
         embed = discord.Embed(
@@ -194,22 +315,36 @@ class YetkiliPanelView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
-    
+
+    @discord.ui.button(label="YK Başvurular", style=discord.ButtonStyle.blurple, emoji="💫", row=0)
+    async def yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """YK başvurular butonuna tıklandığında (sadece Kurucu)"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # Sadece KURUCU rolü kontrolü
+        if not any(role.id == YETKILI_ROLLERI["KURUCU"] for role in interaction.user.roles):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Kurucu"), view=self)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     @discord.ui.button(label="Yetkili Duyuru", style=discord.ButtonStyle.blurple, emoji="📢", row=0)
     async def yetkili_duyuru_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Yetkili duyuru butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
+
         # Yetkili duyuru alt menüsünü göster
         view = YetkiliDuyuruView(self.cog, self.user)
         embed = discord.Embed(
@@ -219,71 +354,6 @@ class YetkiliPanelView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(label="İstatistikler", style=discord.ButtonStyle.blurple, emoji="📊", row=0)
-    async def istatistikler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """İstatistikler butonuna tıklandığında"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # İstatistikleri getir
-        await self.cog.show_stats(interaction)
-    
-    @discord.ui.button(label="Bump Logları", style=discord.ButtonStyle.blurple, emoji="📈", row=1)
-    async def bump_log_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Bump logları butonuna tıklandığında"""
-        if interaction.user.id != self.user.id:
-            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Moderatör veya daha üstü rol kontrolü
-        moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
-        user_index = -1
-        for i, rol_id in enumerate(YETKILI_HIYERARSI):
-            if any(r.id == rol_id for r in interaction.user.roles):
-                user_index = i
-        
-        if user_index < moderator_index:  # Kullanıcı en az Moderatör değilse
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
-        # BumpTracker cog'unu al
-        bump_tracker = interaction.client.get_cog("BumpTracker")
-        
-        if bump_tracker is None:
-            embed = discord.Embed(
-                title="⚠️ Hata",
-                description="Bump Tracker modülü bulunamadı veya yüklenmemiş!",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
-        # Bump istatistikleri embedini oluştur
-        embed = discord.Embed(
-            title="📊 Bump İstatistikleri",
-            description=(
-                "Yetkililerin bump komutunu kullanma istatistiklerini görüntülemek için "
-                "aşağıdaki butonlardan birini seçebilirsiniz.\n\n"
-                "**Günlük**: Son 24 saat içindeki bump istatistikleri\n"
-                "**Haftalık**: Son 7 gün içindeki bump istatistikleri\n"
-                "**2 Haftalık**: Son 14 gün içindeki bump istatistikleri\n"
-                "**Aylık**: Son 30 gün içindeki bump istatistikleri"
-            ),
-            color=discord.Color.blue()
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
-        # Bump log view'ını oluştur
-        view = BumpLogView(bump_tracker, interaction.user)
-        
-        # Mevcut mesajı güncelle
-        await interaction.response.edit_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
-    
     @discord.ui.button(label="Otomatik Mesajlar", style=discord.ButtonStyle.blurple, emoji="⏱️", row=1)
     async def otomatik_mesajlar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Otomatik mesajlar butonuna tıklandığında"""
@@ -291,20 +361,9 @@ class YetkiliPanelView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Moderatör veya daha üstü rol kontrolü
-        moderator_index = YETKILI_HIYERARSI.index(YETKILI_ROLLERI["MODERATÖR"])
-        user_index = -1
-        for i, rol_id in enumerate(YETKILI_HIYERARSI):
-            if any(r.id == rol_id for r in interaction.user.roles):
-                user_index = i
-        
-        if user_index < moderator_index:  # Kullanıcı en az Moderatör değilse
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için en az Moderatör yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
+        if not user_has_moderator_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
+
         # Otomatik mesajlar alt menüsünü göster
         view = OtomatikMesajlarView(self.cog, interaction.user) # interaction.user kullanılmalı
         embed = discord.Embed(
@@ -322,18 +381,21 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Admin yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
+        # YK ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
+
         # Sistem durumu view'ını göster
         view = SistemDurumuView(self.cog, self.user)
         await view.show_system_status(interaction)
+
+    @discord.ui.button(label="İstatistikler", style=discord.ButtonStyle.blurple, emoji="📊", row=1)
+    async def istatistikler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """İstatistikler butonuna tıklandığında"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        await self.cog.show_stats(interaction)
 
     @discord.ui.button(label="Kullanıcı Notları", style=discord.ButtonStyle.blurple, emoji="📝", row=2)
     async def kullanici_notlari_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -341,51 +403,36 @@ class YetkiliPanelView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Admin yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
-            embed = discord.Embed(
-                title="⚠️ Yetersiz Yetki",
-                description="Bu özelliği kullanabilmek için Administrator yetkisine sahip olmanız gerekiyor.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.edit_message(embed=embed, view=self)
-        
+        # Moderatör veya daha üstü rol kontrolü
+        if not user_has_moderator_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Moderatör"), view=self)
+
         # Kullanıcı notları view'ını göster
         view = KullaniciNotlariView(self.cog, self.user)
         await view.show_notes_panel(interaction)
 
-    @discord.ui.button(label="Ana Menü", style=discord.ButtonStyle.green, emoji="🏠", row=2)
-    async def ana_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Ana menüye dönüş butonu"""
+    @discord.ui.button(label="Kullanıcı İşlemleri", style=discord.ButtonStyle.blurple, emoji="🔨", row=2)
+    async def kullanici_islemleri_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Kullanıcı işlemleri butonuna tıklandığında (ban/kick/timeout)"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
+
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), view=self)
+
+        view = KullaniciIslemleriView(self.cog, self.user)
         embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
+            title="🔨 Kullanıcı İşlemleri",
             description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
+                "Kullanıcı işlemleri menüsüne hoş geldiniz.\n\n"
+                "Aşağıdaki butonlardan yapmak istediğiniz işlemi seçin.\n"
+                "Her işlem için kullanıcının **Discord ID**'sini girmeniz gerekecektir."
             ),
             color=0x3498db
         )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
-        view = YetkiliPanelView(self, interaction.user)
-        
-        if interaction.response.is_done():
-            # İlk mesaj gönderilmiş, düzenleme yapalım
-            await interaction.edit_original_response(embed=embed, view=view)
-            message = await interaction.original_response()
-        else:
-            # İlk mesaj henüz gönderilmemiş
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-            message = await interaction.original_response()
-        
-        view.message = message
-    
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
     async def show_stats(self, interaction: discord.Interaction):
         """Sunucu istatistiklerini gösterir"""
         guild = interaction.guild
@@ -535,14 +582,14 @@ class YetkiliPanelView(discord.ui.View):
         embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
         
         # Geri dönüş butonu içeren view
-        view = YetkiliPanelView(self, interaction.user)
-        
+        view = YetkiliPanelView(self.cog, interaction.user)
+
         # Eğer interaction zaten yanıtlandıysa edit_message kullan
         if interaction.response.is_done():
             await interaction.edit_original_response(embed=embed, view=view)
         else:
             await interaction.response.edit_message(embed=embed, view=view)
-        
+
         view.message = await interaction.original_response()
 
 class BasvurularView(discord.ui.View):
@@ -643,20 +690,8 @@ class BasvurularView(discord.ui.View):
         """Geri dön butonuna tıklandığında"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -856,24 +891,621 @@ class BasvuruDetayView(discord.ui.View):
         """Ana menüye dönüş butonu"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
-        
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
-    
+
+# ==================== YK BAŞVURULAR PANEL BÖLÜMLERİ ====================
+
+class YKBasvurularView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="YK Başvuru Ara", style=discord.ButtonStyle.blurple, emoji="🔍", row=0)
+    async def yk_basvuru_ara_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(YKBasvuruAraModal(self.cog, self.user))
+
+    @discord.ui.button(label="Son YK Başvuruları Göster", style=discord.ButtonStyle.blurple, emoji="📋", row=0)
+    async def son_yk_basvurular_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        try:
+            db = await get_db()
+            applications = await db.get_all_yk_applications()
+
+            if not applications:
+                embed = discord.Embed(
+                    title="💫 YK Başvurular",
+                    description="Henüz hiç YK başvurusu bulunmuyor.",
+                    color=0xFFD700
+                )
+                return await interaction.response.edit_message(embed=embed, view=self)
+
+            applications = applications[:10]
+
+            embed = discord.Embed(
+                title="💫 Son YK Başvuruları",
+                description=f"Sistemde kayıtlı son {len(applications)} YK başvurusunun özeti",
+                color=0xFFD700
+            )
+
+            for app in applications:
+                user_id = app['user_id']
+                member = interaction.guild.get_member(user_id)
+
+                status_emojis = {
+                    "pending": "⏳",
+                    "approved": "✅",
+                    "rejected": "❌",
+                    "cancelled": "⛔"
+                }
+
+                status_emoji = status_emojis.get(app['status'], "❓")
+                user_mention = member.mention if member else f"<@{user_id}>"
+
+                embed.add_field(
+                    name=f"{status_emoji} YK Başvuru #{app['id']}",
+                    value=(
+                        f"**Kullanıcı:** {user_mention}\n"
+                        f"**Tarih:** {app['application_date'].split('T')[0]}\n"
+                        f"**ID:** `{app['id']}`"
+                    ),
+                    inline=True
+                )
+
+            embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+            embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+            view = YKBasvurularListeView(self.cog, self.user)
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+
+        except Exception as e:
+            await interaction.response.send_message(f"YK başvurularını getirirken bir hata oluştu: {str(e)}", ephemeral=True)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class YKBasvurularListeView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=0)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class YKBasvuruAraModal(discord.ui.Modal, title="YK Başvuru Arama"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+        self.basvuru_id = discord.ui.TextInput(
+            label="Başvuru ID veya Kullanıcı ID",
+            placeholder="Aramak istediğiniz YK başvurusunun ID'sini veya kullanıcı ID'sini girin",
+            required=True
+        )
+        self.add_item(self.basvuru_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            id_value = self.basvuru_id.value
+            db = await get_db()
+
+            try:
+                id_int = int(id_value)
+
+                # Önce başvuru ID'sine göre ara
+                application = None
+                try:
+                    all_apps = await db.get_all_yk_applications()
+                    for app in all_apps:
+                        if app['id'] == id_int:
+                            application = app
+                            break
+                except:
+                    pass
+
+                # Bulunamadıysa kullanıcı ID'sine göre ara
+                if not application:
+                    application = await db.get_yk_application_by_user_id(id_int)
+            except ValueError:
+                await interaction.response.send_message("Geçersiz ID formatı. Lütfen geçerli bir ID girin.", ephemeral=True)
+                return
+
+            if not application:
+                await interaction.response.send_message(f"Belirtilen ID'ye sahip bir YK başvurusu bulunamadı: {id_value}", ephemeral=True)
+                return
+
+            await self.show_yk_application_details(interaction, application)
+
+        except Exception as e:
+            await interaction.response.send_message(f"YK başvuru aranırken bir hata oluştu: {str(e)}", ephemeral=True)
+
+    async def show_yk_application_details(self, interaction, application):
+        guild = interaction.guild
+        user_id = application['user_id']
+        member = guild.get_member(user_id)
+
+        embed = discord.Embed(
+            title=f"💫 YK Başvuru #{application['id']}",
+            description=f"**Başvuru Tarihi:** {application['application_date'].split('T')[0]}",
+            color=0xFFD700
+        )
+
+        embed.add_field(
+            name="👤 Kullanıcı Bilgileri",
+            value=(
+                f"**ID:** {user_id}\n"
+                f"**Kullanıcı:** {member.mention if member else application['username']}"
+            ),
+            inline=False
+        )
+
+        status_emoji = {
+            "pending": "⏳ Beklemede",
+            "approved": "✅ Onaylandı",
+            "rejected": "❌ Reddedildi",
+            "cancelled": "⛔ İptal Edildi"
+        }
+
+        embed.add_field(
+            name="📊 Durum",
+            value=status_emoji.get(application['status'], "Bilinmiyor"),
+            inline=False
+        )
+
+        # Cevapları ekle (11 soru olduğu için 2 embed gerekebilir ama panel'de kısa tutuyoruz)
+        embed.add_field(name="📋 Form Cevapları", value="", inline=False)
+
+        for i, (question, answer) in enumerate(application['answers'].items()):
+            # Soru metnini kısalt (panel görünümünde)
+            short_q = question[:100] + "..." if len(question) > 100 else question
+            embed.add_field(name=f"Soru {i+1}", value=f"**{short_q}**\n{answer[:500]}", inline=False)
+
+        # İnceleme bilgisi
+        if application['reviewer_id']:
+            reviewer = guild.get_member(application['reviewer_id'])
+            reviewer_mention = reviewer.mention if reviewer else f"ID: {application['reviewer_id']}"
+
+            embed.add_field(
+                name="🔍 İnceleme Bilgileri",
+                value=(
+                    f"**İnceleyen:** {reviewer_mention}\n"
+                    f"**İnceleme Tarihi:** {application['review_date']}\n"
+                    f"**Mesaj:** {application['review_message']}"
+                ),
+                inline=False
+            )
+
+        if member and member.avatar:
+            embed.set_thumbnail(url=member.display_avatar.url)
+
+        embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+
+        view = YKBasvuruDetayView(self.cog, self.user)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class YKBasvuruDetayView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+
+    @discord.ui.button(label="YK Başvurular Menüsüne Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=0)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        view = YKBasvurularView(self.cog, self.user)
+        embed = discord.Embed(
+            title="💫 YK Başvurular",
+            description="Yönetim Kurulu başvuruları menüsüne hoş geldiniz. Lütfen yapmak istediğiniz işlemi seçin.",
+            color=0xFFD700
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    @discord.ui.button(label="Ana Menüye Dön", style=discord.ButtonStyle.green, emoji="🏠", row=0)
+    async def ana_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+# ==================== KULLANICI İŞLEMLERİ PANEL BÖLÜMLERİ ====================
+
+class KullaniciIslemleriView(discord.ui.View):
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="Yasaklama (Ban)", style=discord.ButtonStyle.danger, emoji="🔨", row=0)
+    async def ban_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciBanModal(self.cog, self.user))
+
+    @discord.ui.button(label="Atma (Kick)", style=discord.ButtonStyle.danger, emoji="👢", row=0)
+    async def kick_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciKickModal(self.cog, self.user))
+
+    @discord.ui.button(label="Zaman Aşımı (Timeout)", style=discord.ButtonStyle.secondary, emoji="⏰", row=0)
+    async def timeout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(KullaniciTimeoutModal(self.cog, self.user))
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class KullaniciBanModal(discord.ui.Modal, title="Kullanıcı Yasaklama (Ban)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Yasaklanacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sebep = discord.ui.TextInput(
+            label="Yasaklama Sebebi",
+            placeholder="Yasaklama sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        # Kendini yasaklama kontrolü
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinizi yasaklayamazsınız.", ephemeral=True)
+
+        # Bot kontrolü (herhangi bir bot)
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        # Yetkili kadrosu kontrolü
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden yasaklama işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        # Rol hiyerarşisi kontrolü
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıyı yasaklayamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıyı yasaklama yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        try:
+            await guild.ban(member, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="🔨 Kullanıcı Yasaklandı",
+                description=f"{member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıyı yasaklamak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Yasaklama sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+
+class KullaniciKickModal(discord.ui.Modal, title="Kullanıcı Atma (Kick)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Atılacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sebep = discord.ui.TextInput(
+            label="Atma Sebebi",
+            placeholder="Atma sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinizi atamazsınız.", ephemeral=True)
+
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden atma işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıyı atamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıyı atma yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        try:
+            await guild.kick(member, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="👢 Kullanıcı Atıldı",
+                description=f"{member.mention} (`{member.name}`) sunucudan atıldı.",
+                color=discord.Color.orange(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) sunucudan atıldı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıyı atmak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Atma sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+
+class KullaniciTimeoutModal(discord.ui.Modal, title="Kullanıcı Zaman Aşımı (Timeout)"):
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.executor = user
+
+        self.kullanici_id = discord.ui.TextInput(
+            label="Kullanıcı ID",
+            placeholder="Zaman aşımı uygulanacak kullanıcının Discord ID'sini girin",
+            required=True
+        )
+        self.add_item(self.kullanici_id)
+
+        self.sure = discord.ui.TextInput(
+            label="Süre (dakika)",
+            placeholder="Zaman aşımı süresi (dakika cinsinden, örn: 10, 60, 1440)",
+            required=True
+        )
+        self.add_item(self.sure)
+
+        self.sebep = discord.ui.TextInput(
+            label="Zaman Aşımı Sebebi",
+            placeholder="Zaman aşımı sebebini belirtin (en az 5 karakter)",
+            required=True,
+            min_length=5,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.sebep)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            user_id = int(self.kullanici_id.value)
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz kullanıcı ID formatı.", ephemeral=True)
+
+        try:
+            minutes = int(self.sure.value)
+            if minutes < 1 or minutes > 40320:  # Max 28 gün (Discord limiti)
+                return await interaction.response.send_message(
+                    "Zaman aşımı süresi 1 dakika ile 40320 dakika (28 gün) arasında olmalıdır.",
+                    ephemeral=True
+                )
+        except ValueError:
+            return await interaction.response.send_message("Geçersiz süre formatı. Lütfen dakika cinsinden sayısal bir değer girin.", ephemeral=True)
+
+        guild = interaction.guild
+        member = guild.get_member(user_id)
+
+        if not member:
+            return await interaction.response.send_message(
+                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                ephemeral=True
+            )
+
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message("Kendinize zaman aşımı uygulayamazsınız.", ephemeral=True)
+
+        if member.bot:
+            return await interaction.response.send_message("Bot hesaplarına bu panel üzerinden işlem uygulanamaz.", ephemeral=True)
+
+        yetkili_rol_ids = list(YETKILI_ROLLERI.values())
+        if any(role.id in yetkili_rol_ids for role in member.roles):
+            return await interaction.response.send_message(
+                "Yetkili kadrosunda bulunan bir kullanıcıya bu panel üzerinden zaman aşımı işlemi uygulanamaz.",
+                ephemeral=True
+            )
+
+        if member.top_role >= interaction.user.top_role:
+            return await interaction.response.send_message(
+                "Bu kullanıcıya zaman aşımı uygulayamazsınız. Hedef kullanıcının rolü sizinkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        if member.top_role >= guild.me.top_role:
+            return await interaction.response.send_message(
+                "Bot'un bu kullanıcıya zaman aşımı uygulama yetkisi yok. Hedef kullanıcının rolü bot'unkiyle eşit veya daha yüksek.",
+                ephemeral=True
+            )
+
+        # Süre formatlama
+        if minutes >= 1440:
+            sure_text = f"{minutes // 1440} gün {minutes % 1440 // 60} saat"
+        elif minutes >= 60:
+            sure_text = f"{minutes // 60} saat {minutes % 60} dakika"
+        else:
+            sure_text = f"{minutes} dakika"
+
+        try:
+            timeout_duration = datetime.timedelta(minutes=minutes)
+
+            await member.timeout(timeout_duration, reason=f"{self.sebep.value} | İşlemi yapan: {interaction.user.name}")
+
+            log_embed = discord.Embed(
+                title="⏰ Kullanıcıya Zaman Aşımı Uygulandı",
+                description=f"{member.mention} (`{member.name}`) kullanıcısına zaman aşımı uygulandı.",
+                color=discord.Color.gold(),
+                timestamp=datetime.datetime.now()
+            )
+            log_embed.add_field(name="👤 Kullanıcı", value=f"{member.mention} (ID: {member.id})", inline=False)
+            log_embed.add_field(name="⏱️ Süre", value=sure_text, inline=False)
+            log_embed.add_field(name="📝 Sebep", value=self.sebep.value, inline=False)
+            log_embed.add_field(name="🛡️ İşlemi Yapan", value=f"{interaction.user.mention}", inline=False)
+
+            log_channel = guild.get_channel(YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(embed=log_embed)
+
+            await interaction.response.send_message(
+                f"✅ {member.mention} (`{member.name}`) kullanıcısına **{sure_text}** zaman aşımı uygulandı.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message("Bu kullanıcıya zaman aşımı uygulamak için yeterli yetkim yok.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Zaman aşımı sırasında bir hata oluştu: {str(e)}", ephemeral=True)
+
+
 class YetkiliDuyuruView(discord.ui.View):
     def __init__(self, cog, user):
         super().__init__(timeout=600)  # 10 dakika timeout
@@ -895,13 +1527,13 @@ class YetkiliDuyuruView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             return await interaction.response.send_message(
-                "Bu işlemi gerçekleştirmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                "Bu işlemi gerçekleştirmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 ephemeral=True
             )
-        
+
         # Duyuru oluşturma modalını göster
         await interaction.response.send_modal(YetkiliDuyuruModal(self.cog, self.user))
     
@@ -911,19 +1543,7 @@ class YetkiliDuyuruView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -999,13 +1619,13 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Yönetici yetkisi kontrolü
-        if not interaction.user.guild_permissions.administrator:
+        # Yönetim Kurulu ve üstü rol kontrolü
+        if not user_has_management_permission(interaction.user):
             return await interaction.response.send_message(
-                "Bu işlemi gerçekleştirmek için Administrator yetkisine sahip olmanız gerekiyor.",
+                "Bu işlemi gerçekleştirmek için Yönetim Kurulu veya üstü bir role sahip olmanız gerekiyor.",
                 ephemeral=True
             )
-        
+
         # Rol seçilip seçilmediğini kontrol et
         if not self.secilen_roller:
             return await interaction.response.send_message(
@@ -1081,7 +1701,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         )
         
         # Log kanalına mesaj gönder
-        log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+        log_kanali = discord.utils.get(guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
         if log_kanali:
             log_embed = discord.Embed(
                 title="📢 Yetkili Duyurusu Gönderildi",
@@ -1114,19 +1734,7 @@ class YetkiliDuyuruRolSecView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -1302,7 +1910,7 @@ class YetkiliEkleModal(discord.ui.Modal, title="Yetkili Ekle"):
     async def on_submit(self, interaction: discord.Interaction):
         # Yönetim izni kontrolü
         if not user_has_management_permission(interaction.user):
-            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+            return await interaction.response.send_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), ephemeral=True)
         try:
             hedef_id = int(self.user_id_input.value)
         except ValueError:
@@ -1341,7 +1949,7 @@ class YetkiliCikartModal(discord.ui.Modal, title="Yetkili Çıkart"):
     async def on_submit(self, interaction: discord.Interaction):
         # Yönetim izni kontrolü
         if not user_has_management_permission(interaction.user):
-            return await interaction.response.send_message("Bu işlem için yetkiniz yok.", ephemeral=True)
+            return await interaction.response.send_message(embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"), ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         try:
             hedef_id = int(self.user_id_input.value)
@@ -1358,6 +1966,7 @@ class YetkiliEkleRolSecimMenu(discord.ui.Select):
             ("STAJYER", YETKILI_ROLLERI["STAJYER"]),
             ("ASİSTAN", YETKILI_ROLLERI["ASİSTAN"]),
             ("MODERATÖR", YETKILI_ROLLERI["MODERATÖR"]),
+            ("KIDEMLİ MODERATÖR", YETKILI_ROLLERI["KIDEMLİ MODERATÖR"]),
             ("ADMİN", YETKILI_ROLLERI["ADMİN"]),
         ]
         for name, rid in selectable_roles:
@@ -1453,19 +2062,7 @@ class OtomatikMesajlarView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön - edit_message ile
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -1760,7 +2357,7 @@ class KanalSecimMenu(discord.ui.Select):
             )
             
             # Log kanalına da bildirim gönder
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+            log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="⏱️ Otomatik Mesaj Eklendi",
@@ -1832,8 +2429,8 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                 )
             
             # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-            # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-            is_admin = interaction.user.guild_permissions.administrator
+            # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+            is_admin = user_has_moderator_permission(interaction.user)
             is_owner = mesaj['created_by'] == interaction.user.id
             
             if not is_admin and not is_owner:
@@ -1857,7 +2454,7 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="🗑️ Otomatik Mesaj Silindi",
@@ -1934,7 +2531,7 @@ class IcerikDuzenleModal(discord.ui.Modal, title="Mesaj İçeriği Düzenle"):
                 )
                 
                 # Log kanalına bildirim gönder
-                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="✏️ Mesaj İçeriği Güncellendi",
@@ -2068,7 +2665,7 @@ class ZamanDuzenleModal(discord.ui.Modal, title="Zaman Aralığı Düzenle"):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="⏰ Zaman Aralığı Güncellendi",
@@ -2155,7 +2752,7 @@ class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="🔄 Tekrar Sayısı Güncellendi",
@@ -2357,7 +2954,7 @@ class KanalDuzenleMenu(discord.ui.Select):
                 )
                 
                 # Log kanalına bildirim gönder
-                log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="📻 Kanal Güncellendi",
@@ -2523,7 +3120,7 @@ class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle
                     )
                     
                     # Log kanalına bildirim gönder
-                    log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+                    log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                     if log_channel:
                         log_embed = discord.Embed(
                             title="✏️ Otomatik Mesaj Güncellendi",
@@ -2717,8 +3314,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2737,8 +3334,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2757,8 +3354,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2777,8 +3374,8 @@ class MesajDetayView(discord.ui.View):
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
         # Kullanıcı sadece kendi oluşturduğu mesajları düzenleyebilir
-        # Admin ve üstü roller herhangi bir mesajı düzenleyebilir
-        is_admin = interaction.user.guild_permissions.administrator
+        # Moderatör ve üstü roller herhangi bir mesajı düzenleyebilir
+        is_admin = user_has_moderator_permission(interaction.user)
         is_owner = self.mesaj['created_by'] == interaction.user.id
         
         if not is_admin and not is_owner:
@@ -2874,7 +3471,7 @@ class MesajSilOnayView(discord.ui.View):
             )
             
             # Log kanalına bildirim gönder
-            log_channel = discord.utils.get(interaction.guild.text_channels, name="yetkili-panel-log")
+            log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="🗑️ Otomatik Mesaj Silindi",
@@ -3069,19 +3666,10 @@ class KullaniciNotlariView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana panele dön
+        embed = create_main_panel_embed(interaction.guild)
         main_view = YetkiliPanelView(self.cog, self.user)
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x00ff00,
-            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
-        )
-        embed.set_footer(text=f"Kullanıcı: {self.user.name}")
         await interaction.response.edit_message(embed=embed, view=main_view)
+        main_view.message = await interaction.original_response()
     
     async def show_detailed_stats(self, interaction: discord.Interaction):
         """Detaylı istatistikleri gösterir"""
@@ -3402,9 +3990,9 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        # Sunucu-log kanalına bildirim gönder
+        # Yetkili Panel Log kanalına bildirim gönder
         try:
-            log_channel = interaction.client.get_channel(1365956201539571835)
+            log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="📝 Yeni Kullanıcı Notu Eklendi",
@@ -3423,7 +4011,7 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
                 log_embed.set_footer(text=f"Not ekleyen: {interaction.user.name}")
                 await log_channel.send(embed=log_embed)
         except Exception as e:
-            print(f"Sunucu-log kanalına not ekleme bildirimi gönderilemedi: {e}")
+            print(f"Yetkili Panel Log kanalına not ekleme bildirimi gönderilemedi: {e}")
 
 
 class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
@@ -3488,9 +4076,9 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
             
-            # Sunucu-log kanalına bildirim gönder
+            # Yetkili Panel Log kanalına bildirim gönder
             try:
-                log_channel = interaction.client.get_channel(1365956201539571835)
+                log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="✏️ Kullanıcı Notu Güncellendi",
@@ -3513,7 +4101,7 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
                     log_embed.set_footer(text=f"Düzenleyen: {interaction.user.name}")
                     await log_channel.send(embed=log_embed)
             except Exception as e:
-                print(f"Sunucu-log kanalına not güncelleme bildirimi gönderilemedi: {e}")
+                print(f"Yetkili Panel Log kanalına not güncelleme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not güncellenirken bir hata oluştu!",
@@ -3611,9 +4199,9 @@ class DeleteNoteConfirmView(discord.ui.View):
             
             await interaction.response.edit_message(embed=embed, view=self)
             
-            # Sunucu-log kanalına bildirim gönder
+            # Yetkili Panel Log kanalına bildirim gönder
             try:
-                log_channel = interaction.client.get_channel(1365956201539571835)
+                log_channel = discord.utils.get(interaction.guild.channels, id=1365954141880455238)
                 if log_channel:
                     log_embed = discord.Embed(
                         title="🗑️ Kullanıcı Notu Silindi",
@@ -3637,7 +4225,7 @@ class DeleteNoteConfirmView(discord.ui.View):
                     log_embed.set_footer(text=f"Silen: {interaction.user.name}")
                     await log_channel.send(embed=log_embed)
             except Exception as e:
-                print(f"Sunucu-log kanalına not silme bildirimi gönderilemedi: {e}")
+                print(f"Yetkili Panel Log kanalına not silme bildirimi gönderilemedi: {e}")
         else:
             await interaction.response.send_message(
                 "❌ Not silinirken bir hata oluştu!",
@@ -3965,17 +4553,7 @@ class YetkiliPanel(commands.Cog):
 
     async def show_main_panel(self, interaction: discord.Interaction):
         """Ana yetkili panelini gösterir"""
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
+        embed = create_main_panel_embed(interaction.guild)
         
         view = YetkiliPanelView(self, interaction.user)
         
@@ -4226,9 +4804,9 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=yeni_rol_ismi,
                     reason=sebep
                 )
-            except Exception:
-                pass
-            
+            except Exception as e:
+                print(f"Yetki yükseltme DB kayıt hatası: {e}")
+
             # Başarılı işlem bildirimi
             embed = discord.Embed(
                 title="✅ Yetki Yükseltme Başarılı",
@@ -4258,7 +4836,7 @@ class YetkiliPanel(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Log kanalına bildirim gönder
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🔼 Yetki Yükseltme",
@@ -4375,9 +4953,9 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=yeni_rol_ismi,
                     reason=sebep
                 )
-            except Exception:
-                pass
-            
+            except Exception as e:
+                print(f"Yetki düşürme DB kayıt hatası: {e}")
+
             # Başarılı işlem bildirimi
             embed = discord.Embed(
                 title="✅ Yetki Düşürme Başarılı",
@@ -4407,7 +4985,7 @@ class YetkiliPanel(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Log kanalına bildirim gönder
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🔽 Yetki Düşürme",
@@ -4483,8 +5061,8 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=verilecek_rol.name,
                     reason=sebep
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Yetkili ekleme DB kayıt hatası: {e}")
 
             # ÜYE rolünü kaldır (ID: 1029089740022095973)
             uye_rol = guild.get_role(1029089740022095973)
@@ -4504,7 +5082,7 @@ class YetkiliPanel(commands.Cog):
             embed.add_field(name="İşlemi Yapan", value=f"{ekleyen.mention} ({ekleyen.id})", inline=False)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🆕 Yetkili Ekleme",
@@ -4556,8 +5134,8 @@ class YetkiliPanel(commands.Cog):
                     new_role_name=None,
                     reason=sebep
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Yetkili çıkartma DB kayıt hatası: {e}")
             # Üye rolünü ekle
             uye_rol_id = 1029089740022095973
             uye_rol = guild.get_role(uye_rol_id)
@@ -4574,7 +5152,7 @@ class YetkiliPanel(commands.Cog):
             embed.add_field(name="İşlemi Yapan", value=f"{cikarani.mention} ({cikarani.id})", inline=False)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            log_kanali = discord.utils.get(guild.text_channels, name="yetkili-panel-log")
+            log_kanali = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_kanali:
                 log_embed = discord.Embed(
                     title="🗑️ Yetkili Çıkartma",
@@ -4913,7 +5491,7 @@ class SistemDurumuView(discord.ui.View):
         
         return embed
     
-    @discord.ui.button(label="🔄 Yenile", style=discord.ButtonStyle.green, emoji="🔄", row=0)
+    @discord.ui.button(label="Yenile", style=discord.ButtonStyle.green, emoji="🔄", row=0)
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sistem durumunu yenile"""
         if interaction.user.id != self.user.id:
@@ -4925,7 +5503,7 @@ class SistemDurumuView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Yenileme hatası: {e}", ephemeral=True)
     
-    @discord.ui.button(label="🧹 Cache Temizle", style=discord.ButtonStyle.secondary, emoji="🧹", row=0)
+    @discord.ui.button(label="Cache Temizle", style=discord.ButtonStyle.secondary, emoji="🧹", row=0)
     async def clear_cache_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cache'i temizle"""
         if interaction.user.id != self.user.id:
@@ -5002,25 +5580,13 @@ class SistemDurumuView(discord.ui.View):
         except Exception as e:
             print(f"Cache temizliği log gönderme hatası: {e}")
     
-    @discord.ui.button(label="◀️ Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
     async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Ana menüye dön"""
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         
-        # Ana menüye dön
-        embed = discord.Embed(
-            title="🛡️ HydRaboN Yetkili Paneli",
-            description=(
-                "Hoş geldiniz! Bu panel üzerinden yetkili işlemlerini gerçekleştirebilirsiniz.\n\n"
-                "Lütfen yapmak istediğiniz işlemi aşağıdaki butonlardan seçin."
-            ),
-            color=0x3498db
-        )
-        
-        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-        embed.set_footer(text=f"{interaction.guild.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
-        
+        embed = create_main_panel_embed(interaction.guild)
         view = YetkiliPanelView(self.cog, self.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()

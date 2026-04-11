@@ -36,6 +36,20 @@ class PersistentView(discord.ui.View):
         # Buton işlemi yetkili_alim cog'unda yapılacak
         pass
 
+class YKPersistentView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        style=discord.ButtonStyle.green,
+        label="Başvur",
+        custom_id="yk_apply_button",
+        emoji="💫"
+    )
+    async def yk_apply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Buton işlemi yk_basvuru cog'unda yapılacak
+        pass
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Bot hazır olduğunda çalışacak fonksiyon
@@ -58,6 +72,7 @@ async def on_ready():
     # Kalıcı görünümleri ekleme
     print("🔄 Kalıcı görünümler ekleniyor...")
     bot.add_view(PersistentView())
+    bot.add_view(YKPersistentView())
     print("✅ Kalıcı görünümler eklendi!")
     
     # Slash komutlarını global olarak senkronize et
@@ -67,7 +82,7 @@ async def on_ready():
         synced = await bot.tree.sync()
         print(f"✅ {len(synced)} global komut senkronize edildi!")
         
-        await bot.change_presence(activity=discord.Streaming(name="Kaplanları", url="https://www.twitch.tv/mrpresidentnotsjanymore"))
+        await bot.change_presence(activity=discord.Streaming(name="HydRaboN", url="https://www.twitch.tv/mrpresidentnotsjanymore"))
         print("🎮 Bot durumu ayarlandı!")
         
         # Tüm sunucularda komutları senkronize et
@@ -81,18 +96,186 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Komut senkronizasyonu hatası: {e}")
     
+    # Ses kanallarındaki mevcut kullanıcıları takibe al
+    print("🔊 Ses kanalı takibi başlatılıyor...")
+    db = await get_db()
+    for guild in bot.guilds:
+        try:
+            # Önce eski kalan session'ları temizle (bot restart durumu)
+            ended = await db.end_all_voice_sessions(guild.id)
+            if ended > 0:
+                print(f"  ↳ {guild.name}: {ended} eski voice session sonlandırıldı")
+            
+            # Şu anda ses kanallarında olan kullanıcıları takibe al
+            voice_count = 0
+            for vc in guild.voice_channels:
+                for member in vc.members:
+                    if not member.bot:
+                        await db.start_voice_session(
+                            guild_id=guild.id,
+                            user_id=member.id,
+                            username=str(member),
+                            channel_id=vc.id,
+                            channel_name=vc.name
+                        )
+                        voice_count += 1
+            
+            # Stage kanallarını da kontrol et
+            for sc in guild.stage_channels:
+                for member in sc.members:
+                    if not member.bot:
+                        await db.start_voice_session(
+                            guild_id=guild.id,
+                            user_id=member.id,
+                            username=str(member),
+                            channel_id=sc.id,
+                            channel_name=sc.name
+                        )
+                        voice_count += 1
+            
+            if voice_count > 0:
+                print(f"  ↳ {guild.name}: {voice_count} kullanıcı ses kanalı takibine alındı")
+        except Exception as e:
+            print(f"  ↳ {guild.name}: Ses kanalı takibi başlatılamadı: {e}")
+    print("✅ Ses kanalı takibi başlatıldı!")
+    
     print("🚀 Bot tamamen hazır ve çalışıyor!")
 
 # Bot kapatıldığında çalışacak fonksiyon
 @bot.event
 async def on_close():
     print("🔄 Bot kapatılıyor...")
+    # Aktif voice session'ları sonlandır
+    print("🔊 Aktif ses kanalı session'ları sonlandırılıyor...")
+    try:
+        db_inst = await get_db()
+        for guild in bot.guilds:
+            ended = await db_inst.end_all_voice_sessions(guild.id)
+            if ended > 0:
+                print(f"  ↳ {guild.name}: {ended} voice session sonlandırıldı")
+    except Exception as e:
+        print(f"  ↳ Voice session sonlandırma hatası: {e}")
+    
     # Veritabanı bağlantısını kapat
     print("💾 Veritabanı bağlantısı kapatılıyor...")
     from database import db
     await db.close()
     print("✅ Veritabanı bağlantısı kapatıldı!")
     print("👋 Bot başarıyla kapatıldı!")
+
+# Mesaj istatistikleri için kullanıcı takibi (günlük bazda)
+# Her kanal için o günde mesaj gönderen kullanıcıları takip eder
+daily_channel_users = {}
+
+@bot.event
+async def on_message(message):
+    """Her mesaj gönderildiğinde çalışır - kanal istatistiklerini günceller"""
+    # Bot'un kendi mesajlarını ve DM'leri yoksay
+    if message.author.bot or not message.guild:
+        return
+    
+    # Sadece belirlediğimiz kategorilerdeki kanalları takip et
+    SOHBET_CATEGORY_ID = 1029089768287510588
+    EGLENCE_CATEGORY_ID = 1036080439942713365
+    
+    # Mesajın hangi kategoride olduğunu kontrol et
+    if message.channel.category_id == SOHBET_CATEGORY_ID:
+        category_type = 'sohbet'
+    elif message.channel.category_id == EGLENCE_CATEGORY_ID:
+        category_type = 'eglence'
+    else:
+        # Bu kategorilerde değilse istatistik tutma
+        return
+    
+    try:
+        db = await get_db()
+        
+        # Mesaj tarihini UTC olarak al (veritabanında UTC olarak saklıyoruz)
+        message_date_utc = message.created_at.date().isoformat()
+        
+        # Günlük unique kullanıcı takibi için cache key
+        cache_key = f"{message.guild.id}_{message.channel.id}_{message_date_utc}"
+        
+        # Bu kullanıcı bugün bu kanalda ilk defa mı mesaj gönderiyor?
+        if cache_key not in daily_channel_users:
+            daily_channel_users[cache_key] = set()
+        
+        is_first_message_today = message.author.id not in daily_channel_users[cache_key]
+        
+        if is_first_message_today:
+            daily_channel_users[cache_key].add(message.author.id)
+        
+        # Mesajı veritabanına kaydet
+        await db.record_channel_message(
+            guild_id=message.guild.id,
+            channel_id=message.channel.id,
+            channel_name=message.channel.name,
+            category_type=category_type,
+            user_id=message.author.id,
+            message_date=message_date_utc
+        )
+        
+        # Eğer kullanıcı bugün ilk defa mesaj gönderiyorsa unique sayısını artır
+        if is_first_message_today:
+            await db.increment_channel_unique_users(
+                guild_id=message.guild.id,
+                channel_id=message.channel.id,
+                message_date=message_date_utc
+            )
+        
+        # Her gece yarısı geçince cache'i temizle (memory sızıntısı önlemek için)
+        # Eski günlerin verilerini sil
+        keys_to_remove = []
+        for key in daily_channel_users.keys():
+            # Key formatı: guild_id_channel_id_date
+            key_date = key.split('_')[-1]
+            if key_date != message_date_utc:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del daily_channel_users[key]
+        
+    except Exception as e:
+        print(f"Kanal mesaj istatistiği kayıt hatası: {e}")
+    
+    # Komutları işlemeye devam et
+    await bot.process_commands(message)
+
+# Ses kanalı takip sistemi - kullanıcıların ses kanallarında geçirdiği süreyi kaydetme
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """Kullanıcı ses kanalına girdiğinde, çıktığında veya kanal değiştirdiğinde çalışır"""
+    # Bot'ların ses aktivitesini takip etme
+    if member.bot:
+        return
+    
+    # Sunucu kontrolü
+    if not member.guild:
+        return
+    
+    try:
+        db = await get_db()
+        guild_id = member.guild.id
+        user_id = member.id
+        username = str(member)
+        
+        # Kullanıcı ses kanalından çıktı veya kanal değiştirdi
+        if before.channel is not None and (after.channel is None or before.channel.id != after.channel.id):
+            # Eski kanaldaki session'ı sonlandır
+            await db.end_voice_session(guild_id, user_id)
+        
+        # Kullanıcı yeni bir ses kanalına girdi veya kanal değiştirdi
+        if after.channel is not None and (before.channel is None or before.channel.id != after.channel.id):
+            # Yeni session başlat
+            await db.start_voice_session(
+                guild_id=guild_id,
+                user_id=user_id,
+                username=username,
+                channel_id=after.channel.id,
+                channel_name=after.channel.name
+            )
+    except Exception as e:
+        print(f"Ses kanalı takip hatası: {e}")
 
 # Yönetici gruplandırması oluşturma
 admin_group = app_commands.Group(name="admin", description="Yönetici komutları", 
@@ -177,7 +360,10 @@ async def load_extensions():
         'cogs.extra_features', # Ekstra özellikler sistemi
         'cogs.bump_tracker',   # Bump takip sistemi
         'cogs.weekly_reports', # Haftalık rapor sistemi
-        'cogs.system_monitor'  # Sistem izleme ve uyarı modülü
+        'cogs.system_monitor', # Sistem izleme ve uyarı modülü
+        'cogs.rozet_2025',     # 2025 Yılbaşı Rozet sistemi
+        'cogs.tag_tracker',    # Clan tag takip sistemi
+        'cogs.yk_basvuru'      # YK başvuru sistemi
     ]
     
     successful_loads = 0
@@ -216,7 +402,7 @@ async def setup_staff_application(interaction: discord.Interaction):
         await interaction.response.send_message(f"`{category_name}` kategorisi oluşturuldu.", ephemeral=True)
     
     # Yetkili alım kanalı oluşturma
-    application_channel_name = "yetkili-alım"
+    application_channel_name = "🛡️┃yetkili-alım"
     existing_channel = discord.utils.get(guild.text_channels, name=application_channel_name)
     
     if existing_channel:
@@ -227,7 +413,7 @@ async def setup_staff_application(interaction: discord.Interaction):
         await interaction.followup.send(f"`{application_channel_name}` kanalı oluşturuldu.", ephemeral=True)
     
     # Başvurular kanalı oluşturma (sadece yöneticilerin görebileceği)
-    submissions_channel_name = "başvurular"
+    submissions_channel_name = "🛡️┃başvurular"
     existing_submissions = discord.utils.get(guild.text_channels, name=submissions_channel_name)
     
     if existing_submissions:
@@ -286,7 +472,7 @@ async def setup_staff_application(interaction: discord.Interaction):
     
     # Embed'e görsel ekleme
     if guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
+        embed.set_thumbnail(url="https://media.discordapp.net/attachments/1362825668965957845/1459650495890329833/a2.png?ex=69660735&is=6964b5b5&hm=545b00d87a1f3fdf85ed1e3110cbdbf887285b295473025d47ae5cd52162a6c7&=&format=webp&quality=lossless")
         
     # Zaman damgası ve footer ekleme
     embed.set_footer(text=f"{guild.name} • Yetkili Alım Sistemi", icon_url=guild.icon.url if guild.icon else None)
@@ -320,6 +506,110 @@ async def setup_staff_application(interaction: discord.Interaction):
         kurulum_tamamlandi_embed.set_thumbnail(url=guild.icon.url)
     
     await interaction.followup.send(embed=kurulum_tamamlandi_embed, ephemeral=True)
+
+# YK Başvuru sistemini kurma komutu
+@admin_group.command(name="yk-basvuru-kur", description="Yönetim Kurulu başvuru sistemini kurar")
+@app_commands.default_permissions(administrator=True)
+async def setup_yk_application(interaction: discord.Interaction):
+    # Kullanıcı ID kontrolü
+    if interaction.user.id != 315888596437696522:
+        await interaction.response.send_message("Bu komutu kullanma yetkiniz bulunmamaktadır.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    KURUCU_ROLE_ID = 1029089723110674463
+
+    # YK Başvuru kategorisi oluşturma
+    category_name = "YÖNETİM"
+    existing_category = discord.utils.get(guild.categories, name=category_name)
+
+    if existing_category:
+        category = existing_category
+        await interaction.response.send_message(f"`{category_name}` kategorisi zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        category = await guild.create_category(category_name)
+        await interaction.response.send_message(f"`{category_name}` kategorisi oluşturuldu.", ephemeral=True)
+
+    # YK başvuru kanalı oluşturma (herkes görebilir ama yazamaz)
+    application_channel_name = "💫┃yk-başvuru"
+    existing_channel = discord.utils.get(guild.text_channels, name=application_channel_name)
+
+    if existing_channel:
+        application_channel = existing_channel
+        await interaction.followup.send(f"`{application_channel_name}` kanalı zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        application_channel = await guild.create_text_channel(application_channel_name, category=category, overwrites=overwrites)
+        await interaction.followup.send(f"`{application_channel_name}` kanalı oluşturuldu.", ephemeral=True)
+
+    # YK başvurular kanalı oluşturma (sadece Kurucu rolü görebilir)
+    submissions_channel_name = "💫┃yk-başvurular"
+    existing_submissions = discord.utils.get(guild.text_channels, name=submissions_channel_name)
+
+    if existing_submissions:
+        submissions_channel = existing_submissions
+        await interaction.followup.send(f"`{submissions_channel_name}` kanalı zaten mevcut, onu kullanıyorum.", ephemeral=True)
+    else:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+
+        # Sadece Kurucu rolü için izin
+        kurucu_role = guild.get_role(KURUCU_ROLE_ID)
+        if kurucu_role:
+            overwrites[kurucu_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        submissions_channel = await guild.create_text_channel(submissions_channel_name, category=category, overwrites=overwrites)
+        await interaction.followup.send(f"`{submissions_channel_name}` kanalı oluşturuldu ve izinleri ayarlandı.", ephemeral=True)
+
+    # YK başvuru kanalına embed gönderme
+    embed = discord.Embed(
+        title="📢 HydRaboN Yönetim Kurulu Katılım Başvurusu",
+        description=(
+            "• Yönetim Kurulu, sunucumuzun stratejik kararlarını alan ve yönlendiren en üst birimdir.\n"
+            "• Yönetim Kurulu'na katılmak için aşağıdaki **Başvur** butonuna tıklayarak başvuru formunu doldurun.\n\n"
+            "💫 **Başvuru Koşulları:**\n"
+            "• Başvuru yapabilmek için **Admin** rolünde olmanız gerekmektedir.\n"
+            "• Admin rolünde en az **14 gün** görev yapmış olmanız gerekmektedir.\n"
+            "• **En az 16 yaşını doldurmuş** olmanız gerekmektedir.\n\n"
+            f"📋 **Başvuru Süreci:**\n"
+            f"• Tüm sorulara dürüst ve detaylı cevaplar vermeniz beklenmektedir.\n"
+            f"• Başvurunuz detaylıca incelenecek ve size geri dönüş yapılacaktır.\n\n"
+            f"<:HypeSquad:1202784798993551462> **HydRaboN Yönetim** <:HypeSquad:1202784798993551462>"
+        ),
+        color=0xFFD700
+    )
+
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    embed.set_footer(text=f"{guild.name} • Yönetim Kurulu Başvuru Sistemi", icon_url=guild.icon.url if guild.icon else None)
+    embed.timestamp = datetime.datetime.now(turkey_tz)
+
+    view = YKPersistentView()
+    await application_channel.send(embed=embed, view=view)
+    await interaction.followup.send("YK başvuru butonu kanalına gönderildi.", ephemeral=True)
+
+    # Kurulum tamamlandı mesajı
+    kurulum_embed = discord.Embed(
+        title="💫 YK Başvuru Sistemi Kurulumu Tamamlandı",
+        description=(
+            "Yönetim Kurulu başvuru sistemi başarıyla kuruldu!\n\n"
+            f"📌 **Başvuru Kanalı:** {application_channel.mention}\n"
+            f"📌 **Başvurular Kanalı:** {submissions_channel.mention}\n\n"
+            "⚠️ **Önemli:** `cogs/yk_basvuru.py` dosyasındaki kanal ID sabitlerini güncellemeyi unutmayın!"
+        ),
+        color=0xFFD700
+    )
+
+    if guild.icon:
+        kurulum_embed.set_thumbnail(url=guild.icon.url)
+
+    await interaction.followup.send(embed=kurulum_embed, ephemeral=True)
 
 # Sunucu log kanalı kurma komutu
 @admin_group.command(name="sunuculog-kur", description="Sunucu log kanalını kurar")
