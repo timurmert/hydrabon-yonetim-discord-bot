@@ -552,8 +552,8 @@ class ExtraFeatures(commands.Cog):
             return  # DM mesajlarını kontrol etme
             
         # Belirli kategori içindeki kanalları hariç tut
-        EXCLUDED_CATEGORY_ID = 1036080439942713365
-        if message.channel.category and message.channel.category.id == EXCLUDED_CATEGORY_ID:
+        EXCLUDED_CATEGORY_IDS = {1036080439942713365, 1029089771525521520}
+        if message.channel.category and message.channel.category.id in EXCLUDED_CATEGORY_IDS:
             return
             
         user_id = message.author.id

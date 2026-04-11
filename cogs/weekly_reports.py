@@ -12,7 +12,6 @@ class WeeklyReports(commands.Cog):
     # Puanlama sabitleri
     MSG_WEIGHT = 1.0
     VOICE_WEIGHT = 4.0
-    BUMP_WEIGHT = 10.0
     MESSAGES_PER_HOUR = 30
     EFFICIENCY_FLOOR = 0.7
     EFFICIENCY_BONUS = 0.6
@@ -48,9 +47,9 @@ class WeeklyReports(commands.Cog):
         # Rapor komut grubunu bot'tan kaldır
         self.bot.tree.remove_command(self.rapor_group.name)
 
-    def calculate_staff_score(self, msg_count, online_hours, voice_hours, bump_count):
+    def calculate_staff_score(self, msg_count, online_hours, voice_hours):
         """Yetkili performans puanını hesaplar (verimlilik bazlı)"""
-        base = (msg_count * self.MSG_WEIGHT) + (voice_hours * self.VOICE_WEIGHT) + (bump_count * self.BUMP_WEIGHT)
+        base = (msg_count * self.MSG_WEIGHT) + (voice_hours * self.VOICE_WEIGHT)
         active_hours = voice_hours + (msg_count / self.MESSAGES_PER_HOUR)
         efficiency = active_hours / max(online_hours, 1)
         multiplier = self.EFFICIENCY_FLOOR + self.EFFICIENCY_BONUS * min(efficiency, 1.0)
@@ -1146,30 +1145,14 @@ class WeeklyReports(commands.Cog):
             bump_stats = await db.get_bump_stats_by_period(guild.id, 'weekly')
             
             if bump_stats:
-                # Top 5 bumper
-                top_bumpers = []
-                for i, bumper in enumerate(bump_stats[:5], 1):
-                    user = guild.get_member(bumper['user_id'])
-                    username = user.mention if user else bumper['username']
-                    top_bumpers.append(f"**{i}.** {username} - {bumper['bump_count']} bump")
-                
                 total_bumps = sum(bumper['bump_count'] for bumper in bump_stats)
-                total_bumpers = len(bump_stats)
-                
+
                 embed.add_field(
                     name="📈 Bump İstatistikleri",
                     value=f"**Toplam Bump:** {total_bumps}\n"
-                          f"**Aktif Bumper:** {total_bumpers} kişi\n"
                           f"**Günlük Ortalama:** {total_bumps/7:.1f} bump",
                     inline=True
                 )
-                
-                if top_bumpers:
-                    embed.add_field(
-                        name="🏆 Top 5 Bumper",
-                        value="\n".join(top_bumpers),
-                        inline=False
-                    )
             else:
                 embed.add_field(
                     name="📈 Bump İstatistikleri",
@@ -1506,20 +1489,6 @@ class WeeklyReports(commands.Cog):
                 # Ses kanalı aktivite verilerini al
                 voice_activity_stats = await db.get_voice_activity_stats(guild.id, start_date, end_date)
 
-                # Bump istatistiklerini al (haftalık için özel sorgu)
-                bump_user_stats = {}
-                async with db.connection.cursor() as cursor:
-                    await cursor.execute('''
-                    SELECT user_id, COUNT(*) as bump_count
-                    FROM bump_logs
-                    WHERE guild_id = ? AND bump_time >= ? AND bump_time < ?
-                    GROUP BY user_id
-                    ''', (guild.id, start_date.isoformat(), end_date.isoformat()))
-
-                    rows = await cursor.fetchall()
-                    for row in rows:
-                        bump_user_stats[row[0]] = row[1]
-
                 def is_included_staff(member):
                     user_role_ids = {r.id for r in member.roles}
                     return any(rid in user_role_ids for rid in included_role_ids)
@@ -1596,24 +1565,21 @@ class WeeklyReports(commands.Cog):
                         'total_minutes': 0
                     })
 
-                    # Bump sayısını al (yoksa 0)
-                    bump_count = bump_user_stats.get(member.id, 0)
-
                     # Rol bilgisi ve süre
                     role_name = get_highest_staff_role(member)
                     role_duration = format_role_duration(member.id)
                     role_info = f"{role_name} ({role_duration})" if role_duration else role_name
 
-                    score = self.calculate_staff_score(msg_count, online_data['total_hours'], voice_data['total_hours'], bump_count)
-                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], bump_count, voice_data['total_hours'], score, role_info))
+                    score = self.calculate_staff_score(msg_count, online_data['total_hours'], voice_data['total_hours'])
+                    results.append((member, msg_count, online_data['total_hours'], online_data['daily_average'], voice_data['total_hours'], score, role_info))
 
                 # Puana göre sırala (yüksekten düşüğe)
-                results.sort(key=lambda x: x[6], reverse=True)
+                results.sort(key=lambda x: x[5], reverse=True)
 
                 if results:
                     all_lines = []
-                    for i, (member, msg_count, online_hours, daily_avg, bump_count, voice_hours, score, role_info) in enumerate(results, 1):
-                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses • {bump_count} bump")
+                    for i, (member, msg_count, online_hours, daily_avg, voice_hours, score, role_info) in enumerate(results, 1):
+                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses")
 
                     # Satırları 1024 karakter limitine göre field'lara böl
                     chunks = []
