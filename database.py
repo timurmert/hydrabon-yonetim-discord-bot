@@ -232,10 +232,34 @@ class Database:
             ''')
             
             await cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_user_notes_created_by 
+            CREATE INDEX IF NOT EXISTS idx_user_notes_created_by
             ON user_notes(created_by, created_at)
             ''')
-            
+
+            # Yetkili mazeretleri tablosu
+            await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS staff_excuses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_excuses_guild_user
+            ON staff_excuses(guild_id, user_id)
+            ''')
+
+            await cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_staff_excuses_period
+            ON staff_excuses(guild_id, start_date, end_date)
+            ''')
+
             # Yetkili değişiklikleri tablosu
             await cursor.execute('''
             CREATE TABLE IF NOT EXISTS staff_changes (
@@ -1776,6 +1800,157 @@ class Database:
                 'top_admin_count': top_admin_count,
                 'weekly_notes': weekly_notes
             }
+
+    async def add_staff_excuse(self, guild_id, user_id, username, start_date, end_date, reason):
+        """Yetkili mazeretini kaydeder. start_date/end_date ISO YYYY-MM-DD formatında beklenir."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            INSERT INTO staff_excuses (guild_id, user_id, username, start_date, end_date, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, username, start_date, end_date, reason))
+            excuse_id = cursor.lastrowid
+            await self.connection.commit()
+            return excuse_id
+
+    async def get_staff_excuses_in_period(self, guild_id, period_start, period_end):
+        """Belirli bir dönemle kesişen tüm yetkili mazeretlerini döndürür.
+
+        period_start/period_end ISO YYYY-MM-DD string olmalıdır.
+        Kesişim kuralı: excuse.start_date <= period_end AND excuse.end_date >= period_start
+        """
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, start_date, end_date, reason, created_at
+            FROM staff_excuses
+            WHERE guild_id = ?
+              AND start_date <= ?
+              AND end_date >= ?
+            ORDER BY start_date ASC
+            ''', (guild_id, period_end, period_start))
+
+            excuses = []
+            for row in await cursor.fetchall():
+                excuses.append({
+                    'id': row[0],
+                    'guild_id': row[1],
+                    'user_id': row[2],
+                    'username': row[3],
+                    'start_date': row[4],
+                    'end_date': row[5],
+                    'reason': row[6],
+                    'created_at': row[7]
+                })
+            return excuses
+
+    async def get_user_excuses(self, guild_id, user_id, limit=20):
+        """Bir yetkilinin kayıtlı mazeretlerini döndürür (yeniden eskiye)."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, start_date, end_date, reason, created_at
+            FROM staff_excuses
+            WHERE guild_id = ? AND user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            ''', (guild_id, user_id, limit))
+
+            excuses = []
+            for row in await cursor.fetchall():
+                excuses.append({
+                    'id': row[0],
+                    'guild_id': row[1],
+                    'user_id': row[2],
+                    'username': row[3],
+                    'start_date': row[4],
+                    'end_date': row[5],
+                    'reason': row[6],
+                    'created_at': row[7]
+                })
+            return excuses
+
+    async def delete_staff_excuse(self, excuse_id, guild_id):
+        """Bir mazeret kaydını siler."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            DELETE FROM staff_excuses WHERE id = ? AND guild_id = ?
+            ''', (excuse_id, guild_id))
+            affected_rows = cursor.rowcount
+            await self.connection.commit()
+            return affected_rows > 0
+
+    async def get_staff_excuse_by_id(self, excuse_id, guild_id):
+        """Tek bir mazeret kaydını ID ile getirir."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, start_date, end_date, reason, created_at
+            FROM staff_excuses
+            WHERE id = ? AND guild_id = ?
+            ''', (excuse_id, guild_id))
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0],
+                'guild_id': row[1],
+                'user_id': row[2],
+                'username': row[3],
+                'start_date': row[4],
+                'end_date': row[5],
+                'reason': row[6],
+                'created_at': row[7]
+            }
+
+    async def has_active_or_future_excuse(self, guild_id, user_id, today_iso):
+        """Kullanıcının bitmemiş (aktif veya gelecek) bir mazereti varsa döndürür, yoksa None."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, start_date, end_date, reason
+            FROM staff_excuses
+            WHERE guild_id = ? AND user_id = ? AND end_date >= ?
+            ORDER BY start_date ASC
+            LIMIT 1
+            ''', (guild_id, user_id, today_iso))
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'id': row[0],
+                'start_date': row[1],
+                'end_date': row[2],
+                'reason': row[3]
+            }
+
+    async def get_all_guild_excuses(self, guild_id, limit=10, offset=0):
+        """Sunucudaki tüm mazeretleri sayfalı olarak getirir (yeni başlayandan eskiye)."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, start_date, end_date, reason, created_at
+            FROM staff_excuses
+            WHERE guild_id = ?
+            ORDER BY start_date DESC, created_at DESC
+            LIMIT ? OFFSET ?
+            ''', (guild_id, limit, offset))
+            excuses = []
+            for row in await cursor.fetchall():
+                excuses.append({
+                    'id': row[0],
+                    'guild_id': row[1],
+                    'user_id': row[2],
+                    'username': row[3],
+                    'start_date': row[4],
+                    'end_date': row[5],
+                    'reason': row[6],
+                    'created_at': row[7]
+                })
+            return excuses
+
+    async def get_guild_excuses_count(self, guild_id):
+        """Sunucudaki toplam mazeret sayısı."""
+        async with self.connection.cursor() as cursor:
+            await cursor.execute(
+                'SELECT COUNT(*) FROM staff_excuses WHERE guild_id = ?',
+                (guild_id,)
+            )
+            return (await cursor.fetchone())[0]
 
     async def increment_staff_message(self, guild_id: int, user_id: int, username: str, created_at_iso: str):
         """Yetkili günlük mesaj sayısını 1 artırır (created_at_iso UTC ISO)."""

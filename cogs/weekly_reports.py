@@ -1480,6 +1480,17 @@ class WeeklyReports(commands.Cog):
                 # Yetkili rol atama tarihlerini al
                 staff_role_dates = await db.get_staff_current_role_dates(guild.id)
 
+                # Rapor haftasıyla kesişen mazeretleri al (user_id -> True)
+                try:
+                    period_start_iso = start_date.astimezone(self.turkey_tz).date().isoformat()
+                    period_end_iso = end_date.astimezone(self.turkey_tz).date().isoformat()
+                    excuses_in_week = await db.get_staff_excuses_in_period(
+                        guild.id, period_start_iso, period_end_iso
+                    )
+                    excused_user_ids = {exc['user_id'] for exc in excuses_in_week}
+                except Exception:
+                    excused_user_ids = set()
+
                 # Veritabanından tüm yetkili mesaj verilerini al
                 message_stats = await db.get_top_staff_message_stats(guild.id, start_date, end_date, limit=100)
 
@@ -1579,7 +1590,8 @@ class WeeklyReports(commands.Cog):
                 if results:
                     all_lines = []
                     for i, (member, msg_count, online_hours, daily_avg, voice_hours, score, role_info) in enumerate(results, 1):
-                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses")
+                        mazeret_suffix = " • 📌 *(mazeret var)*" if member.id in excused_user_ids else ""
+                        all_lines.append(f"**{i}.** {member.mention} `{role_info}` • **{score:.0f}** puan | {msg_count} mesaj • {online_hours:.1f}h online • {voice_hours:.1f}h ses{mazeret_suffix}")
 
                     # Satırları 1024 karakter limitine göre field'lara böl
                     chunks = []
