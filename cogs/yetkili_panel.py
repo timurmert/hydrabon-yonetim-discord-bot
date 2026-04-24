@@ -4258,10 +4258,10 @@ def build_mazeret_panel_embed(user):
         title="📌 Mazeret Paneli",
         description=(
             f"Merhaba {user.mention}, buradan mazeretlerini yönetebilirsin.\n\n"
-            "• **📋 Mazeretlerim** — mevcut ve geçmiş mazeretlerin\n"
-            "• **➕ Yeni Mazeret** — yeni bir mazeret bildir (YK onayına gider)\n"
-            "• **🗂️ Tüm Mazeretler** — tüm sunucu mazeretleri\n"
-            "• **🆕 Onay Bekleyenler** — onay bekleyen mazeretleri işle\n\n"
+            "• **📋 Mazeretlerim** — mevcut ve geçmiş mazeretlerin.\n"
+            "• **➕ Yeni Mazeret** — yeni bir mazeret bildir.\n"
+            "• **🗂️ Tüm Mazeretler** — tüm sunucu mazeretleri.\n"
+            "• **🆕 Onay Bekleyenler** — onay bekleyen mazeretler.\n\n"
             "_Aynı anda yalnızca bir aktif/bekleyen mazeretin olabilir; "
             "reddedilen ve geçmişte kalan kayıtlar silinemez._"
         ),
