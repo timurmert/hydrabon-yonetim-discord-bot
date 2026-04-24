@@ -4164,7 +4164,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
             color=0xf1c40f,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
-        embed.set_footer(text="Mazeretin yalnızca YK onayından sonra haftalık rapora yansır.")
+        embed.set_footer(text="Mazeretin YK onayı bekliyor.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
         # Yetkili Panel Log kanalına bildirim gönder
@@ -4984,7 +4984,7 @@ class MazeretOnayDetayView(discord.ui.View):
         embed.add_field(name="Sebep", value=exc['reason'][:1024], inline=False)
         if member:
             embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="Onaylarsan yetkilinin mazereti haftalık rapora yansır.")
+        embed.set_footer(text="Kararın ilgili yetkiliye DM ile bildirilecek.")
         return embed
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅", row=0)
