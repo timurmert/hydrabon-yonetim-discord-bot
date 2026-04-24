@@ -125,6 +125,7 @@ class BumpTracker(commands.Cog):
         self.DISBOARD_BOT_ID = 302050872383242240
         self.BUMP_CHANNEL_ID = 1366027014154223719
         self.YETKILI_SOHBET_CHANNEL_ID = 1362825644550914263
+        self.YK_SOHBET_CHANNEL_ID = 1362825668965957845
         self.YETKILI_ROLLERI = [
             1163918714081644554,  # STAJYER
             1200919832393154680,  # ASİSTAN
@@ -434,10 +435,10 @@ class BumpTracker(commands.Cog):
                 if delta_hours >= 12:
                     key = latest_time_str
                     if self._last_bump_inactivity_notified_for_time != key:
-                        ch = guild.get_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                        ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
                         if not ch:
                             try:
-                                ch = await self.bot.fetch_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                                ch = await self.bot.fetch_channel(self.YK_SOHBET_CHANNEL_ID)
                             except Exception:
                                 ch = None
                         if ch:
@@ -447,9 +448,13 @@ class BumpTracker(commands.Cog):
                             except Exception:
                                 pass
             else:
-                # hiç bump yok - bir kere bildir
                 if self._last_bump_inactivity_notified_for_time != 'NONE':
-                    ch = guild.get_channel(self.YETKILI_SOHBET_CHANNEL_ID)
+                    ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
+                    if not ch:
+                        try:
+                            ch = await self.bot.fetch_channel(self.YK_SOHBET_CHANNEL_ID)
+                        except Exception:
+                            ch = None
                     if ch:
                         try:
                             await ch.send("⚠️ Henüz hiç bump geçmişi bulunamadı. Lütfen <#1366027014154223719> kanalında bump başlatın.")

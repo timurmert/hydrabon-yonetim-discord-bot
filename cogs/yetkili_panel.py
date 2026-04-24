@@ -50,6 +50,7 @@ MANAGEMENT_ALLOWED_ROLE_IDS = [
 ]
 
 YETKILI_PANEL_LOG_CHANNEL_ID = 1365954141880455238
+YK_SOHBET_CHANNEL_ID = 1362825668965957845
 
 def user_has_management_permission(user: discord.Member) -> bool:
     return any(role.id in MANAGEMENT_ALLOWED_ROLE_IDS for role in user.roles)
@@ -430,6 +431,21 @@ class YetkiliPanelView(discord.ui.View):
             ),
             color=0x3498db
         )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+    @discord.ui.button(label="Mazeret", style=discord.ButtonStyle.blurple, emoji="📌", row=2)
+    async def mazeret_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Mazeret yönetim panelini açar"""
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        # Yetkili kontrolü: yalnızca yetkililer mazeret bildirebilir
+        if self.yetkili_rol_id is None:
+            return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yetkili"), view=self)
+
+        view = MazeretPanelView(self.cog, self.user)
+        embed = build_mazeret_panel_embed(interaction.user)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
@@ -4014,6 +4030,1077 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
             print(f"Yetkili Panel Log kanalına not ekleme bildirimi gönderilemedi: {e}")
 
 
+def _parse_mazeret_date(raw: str):
+    """Kullanıcının girdiği tarihi ISO YYYY-MM-DD formatına çevirir.
+
+    Kabul edilen formatlar: GG.AA.YYYY, GG/AA/YYYY, GG-AA-YYYY, YYYY-MM-DD.
+    Başarısız olursa None döner.
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
+    """Yetkilinin kendi mazeretini bildirmesi için modal"""
+
+    def __init__(self, cog, user):
+        super().__init__()
+        self.cog = cog
+        self.user = user
+
+    baslangic_tarihi = discord.ui.TextInput(
+        label="Başlangıç Tarihi (GG.AA.YYYY)",
+        placeholder="Örn: 24.04.2026",
+        max_length=10,
+        required=True
+    )
+
+    bitis_tarihi = discord.ui.TextInput(
+        label="Bitiş Tarihi (GG.AA.YYYY)",
+        placeholder="Örn: 28.04.2026",
+        max_length=10,
+        required=True
+    )
+
+    sebep = discord.ui.TextInput(
+        label="Mazeret Sebebi",
+        placeholder="Mazeretinizi kısaca açıklayın (en az 15 karakter)",
+        style=discord.TextStyle.paragraph,
+        min_length=15,
+        max_length=500,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        start_iso = _parse_mazeret_date(self.baslangic_tarihi.value)
+        end_iso = _parse_mazeret_date(self.bitis_tarihi.value)
+
+        if not start_iso or not end_iso:
+            return await interaction.response.send_message(
+                "❌ Geçersiz tarih formatı. Lütfen `GG.AA.YYYY` formatında girin (örn: `24.04.2026`).",
+                ephemeral=True
+            )
+
+        if end_iso < start_iso:
+            return await interaction.response.send_message(
+                "❌ Bitiş tarihi başlangıç tarihinden önce olamaz.",
+                ephemeral=True
+            )
+
+        # Kural #2 — backdating: start_date geçmişte olamaz
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+        if start_iso < today_iso:
+            return await interaction.response.send_message(
+                "❌ Mazeretin başlangıç tarihi bugünden önce olamaz. Geriye dönük mazeret girişi kabul edilmiyor.",
+                ephemeral=True
+            )
+
+        # Çok uzun mazeretleri de engelle (maks 60 gün)
+        try:
+            delta_days = (datetime.date.fromisoformat(end_iso) - datetime.date.fromisoformat(start_iso)).days
+            if delta_days > 60:
+                return await interaction.response.send_message(
+                    "❌ Mazeret süresi en fazla 60 gün olabilir.",
+                    ephemeral=True
+                )
+        except Exception:
+            pass
+
+        reason = self.sebep.value.strip()
+
+        db = await get_db()
+
+        # Kural #3 — aynı anda yalnızca 1 aktif/bekleyen mazeret
+        existing = await db.has_active_or_future_excuse(
+            interaction.guild.id, interaction.user.id, today_iso
+        )
+        if existing:
+            try:
+                ex_start = datetime.date.fromisoformat(existing['start_date']).strftime("%d.%m.%Y")
+                ex_end = datetime.date.fromisoformat(existing['end_date']).strftime("%d.%m.%Y")
+            except Exception:
+                ex_start, ex_end = existing['start_date'], existing['end_date']
+            return await interaction.response.send_message(
+                f"❌ Zaten aktif veya bekleyen bir mazeretiniz var:\n"
+                f"`#{existing['id']}` • `{ex_start}` → `{ex_end}`\n\n"
+                f"Yeni bir mazeret eklemek için önce mevcut mazeretinizi **📋 Mazeretlerim** menüsünden silin.",
+                ephemeral=True
+            )
+
+        username = interaction.user.global_name or interaction.user.name
+        excuse_id = await db.add_staff_excuse(
+            guild_id=interaction.guild.id,
+            user_id=interaction.user.id,
+            username=username,
+            start_date=start_iso,
+            end_date=end_iso,
+            reason=reason
+        )
+
+        # Kullanıcı dostu tarih gösterimi
+        try:
+            start_display = datetime.date.fromisoformat(start_iso).strftime("%d.%m.%Y")
+            end_display = datetime.date.fromisoformat(end_iso).strftime("%d.%m.%Y")
+        except Exception:
+            start_display, end_display = start_iso, end_iso
+
+        embed = discord.Embed(
+            title="🟡 Mazeret Gönderildi — Onay Bekleniyor",
+            description=(
+                f"**Yetkili:** {interaction.user.mention}\n"
+                f"**Başlangıç:** `{start_display}`\n"
+                f"**Bitiş:** `{end_display}`\n"
+                f"**Kayıt ID:** `{excuse_id}`\n"
+                f"**Durum:** 🟡 Onay Bekliyor\n\n"
+                f"**Sebep:**\n{reason[:300]}{'...' if len(reason) > 300 else ''}"
+            ),
+            color=0xf1c40f,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        embed.set_footer(text="Mazeretin YK onayı bekliyor.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Yetkili Panel Log kanalına bildirim gönder
+        try:
+            log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📌 Yeni Mazeret Bildirimi (Onay Bekliyor)",
+                    description=(
+                        f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                        f"**Tarih Aralığı:** `{start_display}` → `{end_display}`\n"
+                        f"**Kayıt ID:** `{excuse_id}`\n"
+                        f"**Durum:** 🟡 Onay Bekliyor"
+                    ),
+                    color=0xf1c40f,
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(
+                    name="Sebep",
+                    value=reason[:1024] if len(reason) <= 1024 else reason[:1021] + "...",
+                    inline=False
+                )
+                log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                log_embed.set_footer(text=f"Bildiren: {interaction.user.name}")
+                await log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"Yetkili Panel Log kanalına mazeret bildirimi gönderilemedi: {e}")
+
+        # YK sohbet kanalına sessiz bildirim (etiket yok)
+        try:
+            yk_channel = discord.utils.get(interaction.guild.channels, id=YK_SOHBET_CHANNEL_ID)
+            if yk_channel:
+                yk_embed = discord.Embed(
+                    title="🆕 Yeni Mazeret — Onay Bekliyor",
+                    description=(
+                        f"**Yetkili:** {interaction.user.mention}\n"
+                        f"**Tarih Aralığı:** `{start_display}` → `{end_display}`\n"
+                        f"**Kayıt ID:** `{excuse_id}`\n\n"
+                        f"İncelemek için: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                    ),
+                    color=0xf1c40f,
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                yk_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                await yk_channel.send(
+                    embed=yk_embed,
+                    allowed_mentions=discord.AllowedMentions.none()
+                )
+        except Exception as e:
+            print(f"YK sohbet kanalına mazeret bildirimi gönderilemedi: {e}")
+
+
+def _format_mazeret_date(iso_str: str) -> str:
+    """ISO YYYY-MM-DD'yi GG.AA.YYYY'ye çevirir; başarısızsa orijinali döner."""
+    try:
+        return datetime.date.fromisoformat(iso_str).strftime("%d.%m.%Y")
+    except Exception:
+        return iso_str
+
+
+def _mazeret_status(start_iso: str, end_iso: str, today_iso: str) -> str:
+    """Mazeretin bugüne göre TARİHSEL durumunu döndürür: aktif / bekliyor / geçmiş."""
+    if end_iso < today_iso:
+        return "geçmiş"
+    if start_iso > today_iso:
+        return "bekliyor"
+    return "aktif"
+
+
+def _mazeret_onay_emoji(status: str) -> str:
+    """Onay durumunun emojisini döndürür."""
+    return {
+        'pending': '🟡',
+        'approved': '✅',
+        'rejected': '❌'
+    }.get(status, '🟡')
+
+
+def _mazeret_onay_label(status: str) -> str:
+    """Onay durumunun Türkçe etiketini döndürür."""
+    return {
+        'pending': 'Onay Bekliyor',
+        'approved': 'Onaylandı',
+        'rejected': 'Reddedildi'
+    }.get(status, 'Onay Bekliyor')
+
+
+def build_mazeret_panel_embed(user):
+    """Mazeret yönetim panelinin ana embed'i."""
+    embed = discord.Embed(
+        title="📌 Mazeret Paneli",
+        description=(
+            f"Merhaba {user.mention}, buradan mazeretlerini yönetebilirsin.\n\n"
+            "• **📋 Mazeretlerim** — mevcut ve geçmiş mazeretlerin.\n"
+            "• **➕ Yeni Mazeret** — yeni bir mazeret bildir.\n"
+            "• **🗂️ Tüm Mazeretler** — tüm sunucu mazeretleri.\n"
+            "• **🆕 Onay Bekleyenler** — onay bekleyen mazeretler.\n\n"
+            "_Aynı anda yalnızca bir aktif/bekleyen mazeretin olabilir; "
+            "reddedilen ve geçmişte kalan kayıtlar silinemez._"
+        ),
+        color=0xf1c40f
+    )
+    embed.set_thumbnail(url=user.display_avatar.url)
+    return embed
+
+
+class MazeretPanelView(discord.ui.View):
+    """Mazeret yönetimi için ana alt-panel"""
+
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Mazeretlerim", style=discord.ButtonStyle.blurple, emoji="📋", row=0)
+    async def mazeretlerim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        view = MazeretlerimView(self.cog, self.user)
+        await view.show(interaction)
+
+    @discord.ui.button(label="Yeni Mazeret", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    async def yeni_mazeret_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await interaction.response.send_modal(MazeretBildirModal(self.cog, self.user))
+
+    @discord.ui.button(label="Tüm Mazeretler", style=discord.ButtonStyle.secondary, emoji="🗂️", row=0)
+    async def tum_mazeretler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+        view = TumMazeretlerView(self.cog, self.user)
+        await view.show(interaction)
+
+    @discord.ui.button(label="Onay Bekleyenler", style=discord.ButtonStyle.primary, emoji="🆕", row=0)
+    async def onay_bekleyenler_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+        view = MazeretOnayView(self.cog, self.user)
+        await view.show(interaction)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        embed = create_main_panel_embed(interaction.guild)
+        view = YetkiliPanelView(self.cog, self.user)
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
+
+
+class MazeretSilSelect(discord.ui.Select):
+    """Silinebilir mazeretler için seçim menüsü"""
+
+    def __init__(self, parent_view, deletable_excuses):
+        self.parent_view = parent_view
+        if deletable_excuses:
+            options = []
+            for exc in deletable_excuses[:25]:
+                sd = _format_mazeret_date(exc['start_date'])
+                ed = _format_mazeret_date(exc['end_date'])
+                onay_emoji = _mazeret_onay_emoji(exc.get('status', 'pending'))
+                reason_preview = exc['reason'][:80] + ('...' if len(exc['reason']) > 80 else '')
+                options.append(discord.SelectOption(
+                    label=f"{onay_emoji} #{exc['id']} • {sd} → {ed}",
+                    description=reason_preview or "—",
+                    value=str(exc['id'])
+                ))
+            super().__init__(
+                placeholder="🗑️ Silmek istediğiniz mazereti seçin...",
+                options=options,
+                min_values=1,
+                max_values=1,
+                row=0
+            )
+        else:
+            super().__init__(
+                placeholder="Silinebilir mazeretiniz bulunmuyor.",
+                options=[discord.SelectOption(label="Yok", value="none")],
+                disabled=True,
+                row=0
+            )
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.parent_view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+
+        try:
+            excuse_id = int(self.values[0])
+        except (ValueError, IndexError):
+            return await interaction.response.send_message("❌ Geçersiz seçim.", ephemeral=True)
+
+        db = await get_db()
+        excuse = await db.get_staff_excuse_by_id(excuse_id, interaction.guild.id)
+
+        # Sahiplik + silinebilirlik doğrulaması
+        if not excuse or excuse['user_id'] != interaction.user.id:
+            return await interaction.response.send_message(
+                "❌ Bu mazerete erişiminiz yok veya kayıt bulunamadı.",
+                ephemeral=True
+            )
+
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+        if excuse['end_date'] < today_iso:
+            return await interaction.response.send_message(
+                "❌ Geçmişte kalan mazeretler silinemez.",
+                ephemeral=True
+            )
+        if excuse.get('status') == 'rejected':
+            return await interaction.response.send_message(
+                "❌ Reddedilmiş mazeretler arşivde saklanır, silinemez. Yeni bir mazeret bildirebilirsiniz.",
+                ephemeral=True
+            )
+
+        success = await db.delete_staff_excuse(excuse_id, interaction.guild.id)
+        if not success:
+            return await interaction.response.send_message(
+                "❌ Mazeret silinirken bir hata oluştu.",
+                ephemeral=True
+            )
+
+        # Log kanalına bildirim (kural #5)
+        try:
+            log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
+            if log_channel:
+                sd = _format_mazeret_date(excuse['start_date'])
+                ed = _format_mazeret_date(excuse['end_date'])
+                log_embed = discord.Embed(
+                    title="🗑️ Mazeret Silindi",
+                    description=(
+                        f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                        f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                        f"**Silinen Kayıt ID:** `{excuse_id}`"
+                    ),
+                    color=0xe74c3c,
+                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                )
+                log_embed.add_field(
+                    name="Eski Sebep",
+                    value=(excuse['reason'] or "—")[:1024],
+                    inline=False
+                )
+                log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+                log_embed.set_footer(text=f"Silen: {interaction.user.name}")
+                await log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"Mazeret silme log'u gönderilemedi: {e}")
+
+        # Listeyi yenile
+        await self.parent_view.refresh(interaction)
+
+
+class MazeretlerimView(discord.ui.View):
+    """Kullanıcının kendi mazeretlerini listeler ve silme imkanı sağlar"""
+
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    async def _build(self, interaction):
+        """Embed + view bileşenlerini hazırlar"""
+        db = await get_db()
+        excuses = await db.get_user_excuses(interaction.guild.id, self.user.id, limit=20)
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+
+        embed = discord.Embed(
+            title="📋 Mazeretlerim",
+            color=0xf1c40f
+        )
+        embed.set_thumbnail(url=self.user.display_avatar.url)
+
+        if not excuses:
+            embed.description = "Kayıtlı mazeretin bulunmuyor."
+        else:
+            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            lines = []
+            for exc in excuses:
+                date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
+                onay_status = exc.get('status', 'pending')
+                onay_emoji = _mazeret_onay_emoji(onay_status)
+                onay_label = _mazeret_onay_label(onay_status)
+                sd = _format_mazeret_date(exc['start_date'])
+                ed = _format_mazeret_date(exc['end_date'])
+                reason_preview = exc['reason'][:120] + ('...' if len(exc['reason']) > 120 else '')
+
+                # Red gerekçesi varsa göster
+                extra = ""
+                if onay_status == 'rejected' and exc.get('review_message'):
+                    rm = exc['review_message'][:140] + ('...' if len(exc['review_message']) > 140 else '')
+                    extra = f"\n┗ *Red gerekçesi:* {rm}"
+
+                lines.append(
+                    f"{onay_emoji} **#{exc['id']}** `{sd}` → `{ed}` • "
+                    f"**{onay_label}** • {date_emoji.get(date_status, '•')} {date_status}\n"
+                    f"┗ {reason_preview}{extra}"
+                )
+            embed.description = "\n\n".join(lines)
+            embed.set_footer(text="🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi")
+
+        # Silinebilir: reddedilmemiş ve bitişi gelecekte (bugün veya sonrası)
+        deletable = [
+            exc for exc in excuses
+            if exc['end_date'] >= today_iso and exc.get('status') != 'rejected'
+        ]
+
+        # Mevcut itemları temizle ve yeniden ekle
+        self.clear_items()
+        self.add_item(MazeretSilSelect(self, deletable))
+        self.add_item(MazeretlerimGeriButton())
+
+        return embed
+
+    async def show(self, interaction: discord.Interaction):
+        embed = await self._build(interaction)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+        self.message = await interaction.original_response()
+
+    async def refresh(self, interaction: discord.Interaction):
+        """Silme sonrası listeyi yeniler"""
+        embed = await self._build(interaction)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+
+
+class MazeretlerimGeriButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MazeretlerimView = self.view
+        if interaction.user.id != view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        mp_view = MazeretPanelView(view.cog, view.user)
+        embed = build_mazeret_panel_embed(view.user)
+        await interaction.response.edit_message(embed=embed, view=mp_view)
+        mp_view.message = await interaction.original_response()
+
+
+class TumMazeretlerView(discord.ui.View):
+    """YK Adayları+ için tüm sunucu mazeretlerini sayfalı olarak listeler"""
+
+    PAGE_SIZE = 10
+
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+        self.page = 0
+        self.total_count = 0
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    async def _build(self, interaction):
+        db = await get_db()
+        self.total_count = await db.get_guild_excuses_count(interaction.guild.id)
+        total_pages = max(1, (self.total_count + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if self.page >= total_pages:
+            self.page = total_pages - 1
+        if self.page < 0:
+            self.page = 0
+
+        offset = self.page * self.PAGE_SIZE
+        excuses = await db.get_all_guild_excuses(
+            interaction.guild.id, limit=self.PAGE_SIZE, offset=offset
+        )
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+
+        embed = discord.Embed(
+            title="🗂️ Tüm Mazeretler",
+            description=f"Sunucudaki toplam **{self.total_count}** mazeret kaydı (sayfa {self.page + 1}/{total_pages}).",
+            color=0x3498db
+        )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+
+        if not excuses:
+            embed.add_field(name="Kayıt yok", value="Bu sunucuda henüz mazeret kaydı bulunmuyor.", inline=False)
+        else:
+            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            for exc in excuses:
+                date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
+                onay_status = exc.get('status', 'pending')
+                onay_emoji = _mazeret_onay_emoji(onay_status)
+                onay_label = _mazeret_onay_label(onay_status)
+                sd = _format_mazeret_date(exc['start_date'])
+                ed = _format_mazeret_date(exc['end_date'])
+                member = interaction.guild.get_member(exc['user_id'])
+                user_display = member.mention if member else f"`{exc['username']}`"
+                reason_preview = exc['reason'][:200] + ('...' if len(exc['reason']) > 200 else '')
+
+                value_lines = [
+                    f"**Yetkili:** {user_display}",
+                    f"**Durum:** {onay_emoji} {onay_label} • {date_emoji.get(date_status, '•')} {date_status}",
+                    f"**Sebep:** {reason_preview}"
+                ]
+                if onay_status in ('approved', 'rejected') and exc.get('reviewer_username'):
+                    reviewer = f"<@{exc['reviewer_id']}>" if exc.get('reviewer_id') else exc['reviewer_username']
+                    value_lines.append(f"**İnceleyen:** {reviewer}")
+                    if exc.get('review_message'):
+                        rm = exc['review_message'][:160] + ('...' if len(exc['review_message']) > 160 else '')
+                        value_lines.append(f"**İnceleme Notu:** {rm}")
+
+                embed.add_field(
+                    name=f"#{exc['id']} • {sd} → {ed}",
+                    value="\n".join(value_lines),
+                    inline=False
+                )
+            embed.set_footer(text="🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi")
+
+        # Sayfa butonlarını güncelle
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                if item.custom_id == "tum_mazeret_prev":
+                    item.disabled = self.page <= 0
+                elif item.custom_id == "tum_mazeret_next":
+                    item.disabled = self.page >= total_pages - 1
+
+        return embed
+
+    async def show(self, interaction: discord.Interaction):
+        embed = await self._build(interaction)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+        self.message = await interaction.original_response()
+
+    @discord.ui.button(label="Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=0, custom_id="tum_mazeret_prev")
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        self.page -= 1
+        await self.show(interaction)
+
+    @discord.ui.button(label="Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=0, custom_id="tum_mazeret_next")
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        self.page += 1
+        await self.show(interaction)
+
+    @discord.ui.button(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=1)
+    async def geri_don_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        mp_view = MazeretPanelView(self.cog, self.user)
+        embed = build_mazeret_panel_embed(self.user)
+        await interaction.response.edit_message(embed=embed, view=mp_view)
+        mp_view.message = await interaction.original_response()
+
+
+async def _notify_user_excuse_decision(bot, excuse, action_label, reviewer, review_message=None):
+    """Mazeret sahibine DM ile onay/red bildirimi gönderir; başarısızsa sessizce geçer."""
+    try:
+        user = await bot.fetch_user(excuse['user_id'])
+        if not user:
+            return
+        sd = _format_mazeret_date(excuse['start_date'])
+        ed = _format_mazeret_date(excuse['end_date'])
+        color = 0x2ecc71 if action_label == 'onaylandı' else 0xe74c3c
+        title_emoji = '✅' if action_label == 'onaylandı' else '❌'
+        embed = discord.Embed(
+            title=f"{title_emoji} Mazeretin {action_label.capitalize()}",
+            description=(
+                f"**Kayıt ID:** `{excuse['id']}`\n"
+                f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                f"**İnceleyen:** {reviewer.mention}"
+            ),
+            color=color,
+            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        )
+        if review_message:
+            embed.add_field(name="İnceleme Notu", value=review_message[:1024], inline=False)
+        await user.send(embed=embed)
+    except Exception as e:
+        print(f"Mazeret karar DM'i gönderilemedi: {e}")
+
+
+def _log_excuse_decision(guild, excuse, action_label, reviewer, review_message=None):
+    """Yetkili panel log kanalına onay/red bildirimi gönderir."""
+    import asyncio as _asyncio
+    async def _send():
+        try:
+            log_channel = discord.utils.get(guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
+            if not log_channel:
+                return
+            sd = _format_mazeret_date(excuse['start_date'])
+            ed = _format_mazeret_date(excuse['end_date'])
+            color = 0x2ecc71 if action_label == 'onaylandı' else 0xe74c3c
+            title_emoji = '✅' if action_label == 'onaylandı' else '❌'
+            member = guild.get_member(excuse['user_id'])
+            user_display = member.mention if member else f"`{excuse['username']}` ({excuse['user_id']})"
+            log_embed = discord.Embed(
+                title=f"{title_emoji} Mazeret {action_label.capitalize()}",
+                description=(
+                    f"**Yetkili:** {user_display}\n"
+                    f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                    f"**Kayıt ID:** `{excuse['id']}`\n"
+                    f"**İnceleyen:** {reviewer.mention} (`{reviewer.id}`)"
+                ),
+                color=color,
+                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            )
+            if review_message:
+                log_embed.add_field(
+                    name="İnceleme Notu",
+                    value=review_message[:1024],
+                    inline=False
+                )
+            log_embed.set_footer(text=f"İnceleyen: {reviewer.name}")
+            await log_channel.send(embed=log_embed)
+        except Exception as e:
+            print(f"Mazeret karar log'u gönderilemedi: {e}")
+    _asyncio.create_task(_send())
+
+
+class MazeretOnaySelect(discord.ui.Select):
+    """Onay bekleyen mazeretleri listeleyen seçim menüsü"""
+
+    def __init__(self, parent_view, pending_excuses):
+        self.parent_view = parent_view
+        if pending_excuses:
+            options = []
+            for exc in pending_excuses[:25]:
+                sd = _format_mazeret_date(exc['start_date'])
+                ed = _format_mazeret_date(exc['end_date'])
+                label = f"#{exc['id']} • {exc['username'][:30]} • {sd} → {ed}"
+                reason_preview = exc['reason'][:80] + ('...' if len(exc['reason']) > 80 else '')
+                options.append(discord.SelectOption(
+                    label=label[:100],
+                    description=reason_preview or "—",
+                    value=str(exc['id'])
+                ))
+            super().__init__(
+                placeholder="🔍 İncelemek istediğiniz mazereti seçin...",
+                options=options,
+                min_values=1,
+                max_values=1,
+                row=0
+            )
+        else:
+            super().__init__(
+                placeholder="Onay bekleyen mazeret yok.",
+                options=[discord.SelectOption(label="Yok", value="none")],
+                disabled=True,
+                row=0
+            )
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.parent_view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+
+        try:
+            excuse_id = int(self.values[0])
+        except (ValueError, IndexError):
+            return await interaction.response.send_message("❌ Geçersiz seçim.", ephemeral=True)
+
+        db = await get_db()
+        excuse = await db.get_staff_excuse_by_id(excuse_id, interaction.guild.id)
+        if not excuse or excuse.get('status') != 'pending':
+            # Muhtemelen başka bir YK tarafından işlem görmüş — listeyi yenile
+            await self.parent_view.refresh(interaction)
+            return await interaction.followup.send(
+                "ℹ️ Bu mazeret artık onay bekliyor durumunda değil. Liste yenilendi.",
+                ephemeral=True
+            )
+
+        detail_view = MazeretOnayDetayView(self.parent_view.cog, self.parent_view.user, excuse)
+        embed = detail_view.build_embed(interaction.guild)
+        await interaction.response.edit_message(embed=embed, view=detail_view)
+        detail_view.message = await interaction.original_response()
+
+
+class MazeretOnayView(discord.ui.View):
+    """YK Adayları+ için onay bekleyen mazeret listesi"""
+
+    PAGE_SIZE = 10
+
+    def __init__(self, cog, user):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.message = None
+        self.page = 0
+        self.total_count = 0
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    async def _build(self, interaction):
+        db = await get_db()
+        self.total_count = await db.get_pending_excuses_count(interaction.guild.id)
+        total_pages = max(1, (self.total_count + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        if self.page >= total_pages:
+            self.page = total_pages - 1
+        if self.page < 0:
+            self.page = 0
+
+        offset = self.page * self.PAGE_SIZE
+        pending = await db.get_pending_excuses(
+            interaction.guild.id, limit=self.PAGE_SIZE, offset=offset
+        )
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+
+        embed = discord.Embed(
+            title="🆕 Onay Bekleyen Mazeretler",
+            description=(
+                f"Toplam **{self.total_count}** mazeret onay bekliyor "
+                f"(sayfa {self.page + 1}/{total_pages}).\n"
+                f"Listenin altındaki menüden incelemek istediğini seç."
+            ),
+            color=0xf1c40f
+        )
+
+        if not pending:
+            embed.add_field(
+                name="Kuyruk boş",
+                value="Harika — şu an onay bekleyen mazeret yok. ✨",
+                inline=False
+            )
+        else:
+            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            for exc in pending:
+                date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
+                sd = _format_mazeret_date(exc['start_date'])
+                ed = _format_mazeret_date(exc['end_date'])
+                member = interaction.guild.get_member(exc['user_id'])
+                user_display = member.mention if member else f"`{exc['username']}`"
+                reason_preview = exc['reason'][:180] + ('...' if len(exc['reason']) > 180 else '')
+                embed.add_field(
+                    name=f"#{exc['id']} • {sd} → {ed} • {date_emoji.get(date_status, '•')} {date_status}",
+                    value=f"**Yetkili:** {user_display}\n**Sebep:** {reason_preview}",
+                    inline=False
+                )
+            embed.set_footer(text="🟢 Aktif  •  🟠 Bekliyor  •  ⚪ Geçmiş (süresi dolmuş pending)")
+
+        # View bileşenlerini yeniden kur
+        self.clear_items()
+        self.add_item(MazeretOnaySelect(self, pending))
+        # Sayfa butonları ve geri butonu
+        self.add_item(MazeretOnayPrevButton(disabled=self.page <= 0))
+        self.add_item(MazeretOnayNextButton(disabled=self.page >= total_pages - 1))
+        self.add_item(MazeretOnayYenileButton())
+        self.add_item(MazeretOnayGeriButton())
+
+        return embed
+
+    async def show(self, interaction: discord.Interaction):
+        embed = await self._build(interaction)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+        self.message = await interaction.original_response()
+
+    async def refresh(self, interaction: discord.Interaction):
+        embed = await self._build(interaction)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
+
+
+class MazeretOnayPrevButton(discord.ui.Button):
+    def __init__(self, disabled=False):
+        super().__init__(label="Önceki", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1, disabled=disabled)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MazeretOnayView = self.view
+        if interaction.user.id != view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        view.page -= 1
+        await view.show(interaction)
+
+
+class MazeretOnayNextButton(discord.ui.Button):
+    def __init__(self, disabled=False):
+        super().__init__(label="Sonraki", style=discord.ButtonStyle.secondary, emoji="➡️", row=1, disabled=disabled)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MazeretOnayView = self.view
+        if interaction.user.id != view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        view.page += 1
+        await view.show(interaction)
+
+
+class MazeretOnayYenileButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Yenile", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MazeretOnayView = self.view
+        if interaction.user.id != view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        await view.show(interaction)
+
+
+class MazeretOnayGeriButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Geri Dön", style=discord.ButtonStyle.danger, emoji="◀️", row=2)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MazeretOnayView = self.view
+        if interaction.user.id != view.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        mp_view = MazeretPanelView(view.cog, view.user)
+        embed = build_mazeret_panel_embed(view.user)
+        await interaction.response.edit_message(embed=embed, view=mp_view)
+        mp_view.message = await interaction.original_response()
+
+
+class MazeretOnayDetayView(discord.ui.View):
+    """Tek bir mazereti onaylama/reddetme ekranı"""
+
+    def __init__(self, cog, user, excuse):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.user = user
+        self.excuse = excuse
+        self.message = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    def build_embed(self, guild):
+        exc = self.excuse
+        today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
+        date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
+        date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}.get(date_status, "•")
+        sd = _format_mazeret_date(exc['start_date'])
+        ed = _format_mazeret_date(exc['end_date'])
+        member = guild.get_member(exc['user_id'])
+        user_display = member.mention if member else f"`{exc['username']}` ({exc['user_id']})"
+
+        # Oluşturulma zamanı (UTC ISO → Istanbul TR)
+        created_display = exc.get('created_at') or "—"
+        try:
+            dt = datetime.datetime.fromisoformat(created_display.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            dt_tr = dt.astimezone(pytz.timezone('Europe/Istanbul'))
+            created_display = dt_tr.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            pass
+
+        embed = discord.Embed(
+            title=f"🔍 Mazeret İnceleme — #{exc['id']}",
+            description=(
+                f"**Yetkili:** {user_display}\n"
+                f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                f"**Durum:** 🟡 Onay Bekliyor • {date_emoji} {date_status}\n"
+                f"**Bildirim Zamanı:** `{created_display}`"
+            ),
+            color=0xf1c40f
+        )
+        embed.add_field(name="Sebep", value=exc['reason'][:1024], inline=False)
+        if member:
+            embed.set_thumbnail(url=member.display_avatar.url)
+        embed.set_footer(text="Kararın ilgili yetkiliye DM ile bildirilecek.")
+        return embed
+
+    @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅", row=0)
+    async def onayla_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+
+        db = await get_db()
+        reviewer_username = interaction.user.global_name or interaction.user.name
+        success = await db.approve_staff_excuse(
+            self.excuse['id'], interaction.guild.id,
+            interaction.user.id, reviewer_username, review_message=None
+        )
+        if not success:
+            return await interaction.response.send_message(
+                "❌ Onaylanamadı. Mazeret başka bir YK tarafından zaten işleme alınmış olabilir.",
+                ephemeral=True
+            )
+
+        _log_excuse_decision(interaction.guild, self.excuse, 'onaylandı', interaction.user)
+        await _notify_user_excuse_decision(
+            interaction.client, self.excuse, 'onaylandı', interaction.user
+        )
+
+        # Onay sonrası listeye dön
+        list_view = MazeretOnayView(self.cog, self.user)
+        embed = await list_view._build(interaction)
+        await interaction.response.edit_message(embed=embed, view=list_view)
+        list_view.message = await interaction.original_response()
+        await interaction.followup.send(
+            f"✅ `#{self.excuse['id']}` numaralı mazeret onaylandı.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.danger, emoji="❌", row=0)
+    async def reddet_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+        await interaction.response.send_modal(MazeretRedModal(self))
+
+    @discord.ui.button(label="Geri", style=discord.ButtonStyle.secondary, emoji="◀️", row=1)
+    async def geri_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
+        list_view = MazeretOnayView(self.cog, self.user)
+        embed = await list_view._build(interaction)
+        await interaction.response.edit_message(embed=embed, view=list_view)
+        list_view.message = await interaction.original_response()
+
+
+class MazeretRedModal(discord.ui.Modal, title="Mazereti Reddet"):
+    """Mazeret reddetme gerekçe modalı"""
+
+    def __init__(self, detail_view):
+        super().__init__()
+        self.detail_view = detail_view
+
+    gerekce = discord.ui.TextInput(
+        label="Red Gerekçesi",
+        placeholder="Mazeretin neden reddedildiğini açıklayın (en az 15 karakter)",
+        style=discord.TextStyle.paragraph,
+        min_length=15,
+        max_length=500,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not user_has_management_permission(interaction.user):
+            return await interaction.response.send_message(
+                embed=yetersiz_yetki_embed("Yönetim Kurulu Adayları"),
+                ephemeral=True
+            )
+
+        gerekce = self.gerekce.value.strip()
+        db = await get_db()
+        reviewer_username = interaction.user.global_name or interaction.user.name
+        success = await db.reject_staff_excuse(
+            self.detail_view.excuse['id'], interaction.guild.id,
+            interaction.user.id, reviewer_username, review_message=gerekce
+        )
+        if not success:
+            return await interaction.response.send_message(
+                "❌ Reddedilemedi. Mazeret başka bir YK tarafından zaten işleme alınmış olabilir.",
+                ephemeral=True
+            )
+
+        _log_excuse_decision(
+            interaction.guild, self.detail_view.excuse, 'reddedildi',
+            interaction.user, review_message=gerekce
+        )
+        await _notify_user_excuse_decision(
+            interaction.client, self.detail_view.excuse, 'reddedildi',
+            interaction.user, review_message=gerekce
+        )
+
+        # Red sonrası listeye dön
+        list_view = MazeretOnayView(self.detail_view.cog, self.detail_view.user)
+        embed = await list_view._build(interaction)
+        await interaction.response.edit_message(embed=embed, view=list_view)
+        list_view.message = await interaction.original_response()
+        await interaction.followup.send(
+            f"❌ `#{self.detail_view.excuse['id']}` numaralı mazeret reddedildi.",
+            ephemeral=True
+        )
+
+
 class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
     """Not düzenleme modal'ı"""
     
@@ -4269,17 +5356,87 @@ class YetkiliPanel(commands.Cog):
         self.bot = bot
         # Otomatik mesaj gönderme işlemini başlat
         self.message_check_task = None
-    
+        self.overdue_excuse_task = None
+
     async def cog_load(self):
         """Cog yüklendiğinde çalışan metod"""
         # Otomatik mesaj kontrol görevini başlat
         self.message_check_task = self.bot.loop.create_task(self.check_scheduled_messages())
-    
+        # 24 saat geçmiş pending mazeret hatırlatma görevini başlat
+        self.overdue_excuse_task = self.bot.loop.create_task(self.check_overdue_excuses())
+
     async def cog_unload(self):
         """Cog kaldırıldığında çalışan metod"""
         # Otomatik mesaj kontrol görevini iptal et
         if self.message_check_task:
             self.message_check_task.cancel()
+        if self.overdue_excuse_task:
+            self.overdue_excuse_task.cancel()
+
+    async def check_overdue_excuses(self):
+        """30 dakikada bir, 24 saati geçmiş onay bekleyen mazeretleri YK kanalına bildirir."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                db = await get_db()
+                for guild in self.bot.guilds:
+                    overdue = await db.get_overdue_pending_excuses(guild.id, hours=24)
+                    if not overdue:
+                        continue
+
+                    yk_channel = discord.utils.get(guild.channels, id=YK_SOHBET_CHANNEL_ID)
+                    if not yk_channel:
+                        continue
+
+                    lines = []
+                    tr_tz = pytz.timezone('Europe/Istanbul')
+                    for exc in overdue:
+                        sd = _format_mazeret_date(exc['start_date'])
+                        ed = _format_mazeret_date(exc['end_date'])
+                        member = guild.get_member(exc['user_id'])
+                        user_display = member.mention if member else f"`{exc['username']}`"
+                        created_display = exc.get('created_at') or "—"
+                        try:
+                            dt = datetime.datetime.fromisoformat(created_display.replace("Z", "+00:00"))
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=datetime.timezone.utc)
+                            created_display = dt.astimezone(tr_tz).strftime("%d.%m.%Y %H:%M")
+                        except Exception:
+                            pass
+                        lines.append(
+                            f"• `#{exc['id']}` {user_display} • `{sd}` → `{ed}` • bildirildi: `{created_display}`"
+                        )
+
+                    embed = discord.Embed(
+                        title="⏰ 24 Saati Geçmiş Mazeretler",
+                        description=(
+                            f"Aşağıdaki **{len(overdue)}** mazeret 24 saatten uzun süredir onay bekliyor:\n\n"
+                            + "\n".join(lines)
+                            + "\n\nLütfen inceleyin: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                        ),
+                        color=0xe67e22,
+                        timestamp=datetime.datetime.now(tr_tz)
+                    )
+
+                    try:
+                        await yk_channel.send(
+                            content="@everyone",
+                            embed=embed,
+                            allowed_mentions=discord.AllowedMentions(everyone=True)
+                        )
+                        await db.mark_excuses_reminded([exc['id'] for exc in overdue])
+                    except Exception as send_err:
+                        print(f"Mazeret 24h hatırlatma gönderilemedi: {send_err}")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"check_overdue_excuses hatası: {e}")
+
+            # 30 dakika bekle
+            try:
+                await asyncio.sleep(1800)
+            except asyncio.CancelledError:
+                break
     
     @app_commands.command(
         name="yetkili-panel", 
