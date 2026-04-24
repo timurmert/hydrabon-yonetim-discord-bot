@@ -434,7 +434,7 @@ class YetkiliPanelView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
-    @discord.ui.button(label="Mazeret", style=discord.ButtonStyle.success, emoji="📌", row=2)
+    @discord.ui.button(label="Mazeret", style=discord.ButtonStyle.blurple, emoji="📌", row=2)
     async def mazeret_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Mazeret yönetim panelini açar"""
         if interaction.user.id != self.user.id:
@@ -4164,7 +4164,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
             color=0xf1c40f,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
-        embed.set_footer(text="Mazeretiniz yalnızca YK onayından sonra haftalık rapora yansır.")
+        embed.set_footer(text="Mazeretin yalnızca YK onayından sonra haftalık rapora yansır.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
         # Yetkili Panel Log kanalına bildirim gönder
@@ -4257,13 +4257,12 @@ def build_mazeret_panel_embed(user):
     embed = discord.Embed(
         title="📌 Mazeret Paneli",
         description=(
-            f"Merhaba {user.mention}, buradan mazeretlerinizi yönetebilirsiniz.\n\n"
-            "• **📋 Mazeretlerim** — mevcut ve geçmiş mazeretleriniz\n"
-            "• **➕ Yeni Mazeret** — yeni bir mazeret bildirin (YK onayına gider)\n"
-            "• **🗂️ Tüm Mazeretler** — tüm sunucu mazeretleri *(YK Adayları+)*\n"
-            "• **🆕 Onay Bekleyenler** — onay bekleyen mazeretleri işle *(YK Adayları+)*\n\n"
-            "_Mazeretler yalnızca **YK onayı** sonrası haftalık rapora yansır. "
-            "Aynı anda yalnızca bir aktif/bekleyen mazeretiniz olabilir; "
+            f"Merhaba {user.mention}, buradan mazeretlerini yönetebilirsin.\n\n"
+            "• **📋 Mazeretlerim** — mevcut ve geçmiş mazeretlerin\n"
+            "• **➕ Yeni Mazeret** — yeni bir mazeret bildir (YK onayına gider)\n"
+            "• **🗂️ Tüm Mazeretler** — tüm sunucu mazeretleri\n"
+            "• **🆕 Onay Bekleyenler** — onay bekleyen mazeretleri işle\n\n"
+            "_Aynı anda yalnızca bir aktif/bekleyen mazeretin olabilir; "
             "reddedilen ve geçmişte kalan kayıtlar silinemez._"
         ),
         color=0xf1c40f
@@ -4469,7 +4468,7 @@ class MazeretlerimView(discord.ui.View):
         embed.set_thumbnail(url=self.user.display_avatar.url)
 
         if not excuses:
-            embed.description = "Kayıtlı mazeretiniz bulunmuyor."
+            embed.description = "Kayıtlı mazeretin bulunmuyor."
         else:
             date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
             lines = []
@@ -4671,7 +4670,7 @@ async def _notify_user_excuse_decision(bot, excuse, action_label, reviewer, revi
         color = 0x2ecc71 if action_label == 'onaylandı' else 0xe74c3c
         title_emoji = '✅' if action_label == 'onaylandı' else '❌'
         embed = discord.Embed(
-            title=f"{title_emoji} Mazeretiniz {action_label.capitalize()}",
+            title=f"{title_emoji} Mazeretin {action_label.capitalize()}",
             description=(
                 f"**Kayıt ID:** `{excuse['id']}`\n"
                 f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
@@ -4829,7 +4828,7 @@ class MazeretOnayView(discord.ui.View):
             description=(
                 f"Toplam **{self.total_count}** mazeret onay bekliyor "
                 f"(sayfa {self.page + 1}/{total_pages}).\n"
-                f"Listenin altındaki menüden incelemek istediğinizi seçin."
+                f"Listenin altındaki menüden incelemek istediğini seç."
             ),
             color=0xf1c40f
         )
@@ -4985,7 +4984,7 @@ class MazeretOnayDetayView(discord.ui.View):
         embed.add_field(name="Sebep", value=exc['reason'][:1024], inline=False)
         if member:
             embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="Onaylarsanız yetkilinin mazereti haftalık rapora yansır.")
+        embed.set_footer(text="Onaylarsan yetkilinin mazereti haftalık rapora yansır.")
         return embed
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅", row=0)
