@@ -280,6 +280,12 @@ class Database:
                 await cursor.execute("ALTER TABLE staff_excuses ADD COLUMN review_date TIMESTAMP")
                 await cursor.execute("ALTER TABLE staff_excuses ADD COLUMN review_message TEXT")
 
+            # Migration: 24 saat hatırlatma bayrağı
+            try:
+                await cursor.execute("SELECT reminded_at FROM staff_excuses LIMIT 1")
+            except aiosqlite.OperationalError:
+                await cursor.execute("ALTER TABLE staff_excuses ADD COLUMN reminded_at TIMESTAMP")
+
             # Yetkili değişiklikleri tablosu
             await cursor.execute('''
             CREATE TABLE IF NOT EXISTS staff_changes (
@@ -2007,6 +2013,36 @@ class Database:
             affected = cursor.rowcount
             await self.connection.commit()
             return affected > 0
+
+    async def get_overdue_pending_excuses(self, guild_id, hours=24):
+        """created_at'si N saatten eski + hâlâ pending + hatırlatılmamış mazeretleri döndürür."""
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        async with self.connection.cursor() as cursor:
+            await cursor.execute('''
+            SELECT id, guild_id, user_id, username, start_date, end_date, reason,
+                   status, reviewer_id, reviewer_username, review_date, review_message, created_at
+            FROM staff_excuses
+            WHERE guild_id = ?
+              AND status = 'pending'
+              AND created_at <= ?
+              AND reminded_at IS NULL
+            ORDER BY created_at ASC
+            ''', (guild_id, cutoff_iso))
+            return [self._excuse_row_to_dict(row) for row in await cursor.fetchall()]
+
+    async def mark_excuses_reminded(self, excuse_ids):
+        """Verilen ID'ler için reminded_at = CURRENT_TIMESTAMP işaretler."""
+        if not excuse_ids:
+            return 0
+        async with self.connection.cursor() as cursor:
+            placeholders = ','.join(['?'] * len(excuse_ids))
+            await cursor.execute(
+                f"UPDATE staff_excuses SET reminded_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+                list(excuse_ids)
+            )
+            affected = cursor.rowcount
+            await self.connection.commit()
+            return affected
 
     async def increment_staff_message(self, guild_id: int, user_id: int, username: str, created_at_iso: str):
         """Yetkili günlük mesaj sayısını 1 artırır (created_at_iso UTC ISO)."""

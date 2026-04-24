@@ -5357,17 +5357,87 @@ class YetkiliPanel(commands.Cog):
         self.bot = bot
         # Otomatik mesaj gönderme işlemini başlat
         self.message_check_task = None
-    
+        self.overdue_excuse_task = None
+
     async def cog_load(self):
         """Cog yüklendiğinde çalışan metod"""
         # Otomatik mesaj kontrol görevini başlat
         self.message_check_task = self.bot.loop.create_task(self.check_scheduled_messages())
-    
+        # 24 saat geçmiş pending mazeret hatırlatma görevini başlat
+        self.overdue_excuse_task = self.bot.loop.create_task(self.check_overdue_excuses())
+
     async def cog_unload(self):
         """Cog kaldırıldığında çalışan metod"""
         # Otomatik mesaj kontrol görevini iptal et
         if self.message_check_task:
             self.message_check_task.cancel()
+        if self.overdue_excuse_task:
+            self.overdue_excuse_task.cancel()
+
+    async def check_overdue_excuses(self):
+        """30 dakikada bir, 24 saati geçmiş onay bekleyen mazeretleri YK kanalına bildirir."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                db = await get_db()
+                for guild in self.bot.guilds:
+                    overdue = await db.get_overdue_pending_excuses(guild.id, hours=24)
+                    if not overdue:
+                        continue
+
+                    yk_channel = discord.utils.get(guild.channels, id=YK_SOHBET_CHANNEL_ID)
+                    if not yk_channel:
+                        continue
+
+                    lines = []
+                    tr_tz = pytz.timezone('Europe/Istanbul')
+                    for exc in overdue:
+                        sd = _format_mazeret_date(exc['start_date'])
+                        ed = _format_mazeret_date(exc['end_date'])
+                        member = guild.get_member(exc['user_id'])
+                        user_display = member.mention if member else f"`{exc['username']}`"
+                        created_display = exc.get('created_at') or "—"
+                        try:
+                            dt = datetime.datetime.fromisoformat(created_display.replace("Z", "+00:00"))
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=datetime.timezone.utc)
+                            created_display = dt.astimezone(tr_tz).strftime("%d.%m.%Y %H:%M")
+                        except Exception:
+                            pass
+                        lines.append(
+                            f"• `#{exc['id']}` {user_display} • `{sd}` → `{ed}` • bildirildi: `{created_display}`"
+                        )
+
+                    embed = discord.Embed(
+                        title="⏰ 24 Saati Geçmiş Mazeretler",
+                        description=(
+                            f"Aşağıdaki **{len(overdue)}** mazeret 24 saatten uzun süredir onay bekliyor:\n\n"
+                            + "\n".join(lines)
+                            + "\n\nLütfen inceleyin: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                        ),
+                        color=0xe67e22,
+                        timestamp=datetime.datetime.now(tr_tz)
+                    )
+
+                    try:
+                        await yk_channel.send(
+                            content="@everyone",
+                            embed=embed,
+                            allowed_mentions=discord.AllowedMentions(everyone=True)
+                        )
+                        await db.mark_excuses_reminded([exc['id'] for exc in overdue])
+                    except Exception as send_err:
+                        print(f"Mazeret 24h hatırlatma gönderilemedi: {send_err}")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"check_overdue_excuses hatası: {e}")
+
+            # 30 dakika bekle
+            try:
+                await asyncio.sleep(1800)
+            except asyncio.CancelledError:
+                break
     
     @app_commands.command(
         name="yetkili-panel", 
