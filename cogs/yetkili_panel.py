@@ -683,7 +683,7 @@ class BasvurularView(discord.ui.View):
                     value=(
                         f"**Kullanıcı:** {user_mention}\n"
                         f"**Tarih:** {app['application_date'].split('T')[0]}\n"
-                        f"**ID:** `{app['id']}`"
+                        f"**ID:** {app['id']}"
                     ),
                     inline=True
                 )
@@ -978,7 +978,7 @@ class YKBasvurularView(discord.ui.View):
                     value=(
                         f"**Kullanıcı:** {user_mention}\n"
                         f"**Tarih:** {app['application_date'].split('T')[0]}\n"
-                        f"**ID:** `{app['id']}`"
+                        f"**ID:** {app['id']}"
                     ),
                     inline=True
                 )
@@ -1253,7 +1253,7 @@ class KullaniciBanModal(discord.ui.Modal, title="Kullanıcı Yasaklama (Ban)"):
 
         if not member:
             return await interaction.response.send_message(
-                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                f"ID ({user_id}) ile eşleşen bir kullanıcı sunucuda bulunamadı.",
                 ephemeral=True
             )
 
@@ -1291,7 +1291,7 @@ class KullaniciBanModal(discord.ui.Modal, title="Kullanıcı Yasaklama (Ban)"):
 
             log_embed = discord.Embed(
                 title="🔨 Kullanıcı Yasaklandı",
-                description=f"{member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                description=f"{member.mention} ({member.name}) sunucudan yasaklandı.",
                 color=discord.Color.red(),
                 timestamp=datetime.datetime.now()
             )
@@ -1304,7 +1304,7 @@ class KullaniciBanModal(discord.ui.Modal, title="Kullanıcı Yasaklama (Ban)"):
                 await log_channel.send(embed=log_embed)
 
             await interaction.response.send_message(
-                f"✅ {member.mention} (`{member.name}`) sunucudan yasaklandı.",
+                f"✅ {member.mention} ({member.name}) sunucudan yasaklandı.",
                 ephemeral=True
             )
 
@@ -1347,7 +1347,7 @@ class KullaniciKickModal(discord.ui.Modal, title="Kullanıcı Atma (Kick)"):
 
         if not member:
             return await interaction.response.send_message(
-                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                f"ID ({user_id}) ile eşleşen bir kullanıcı sunucuda bulunamadı.",
                 ephemeral=True
             )
 
@@ -1381,7 +1381,7 @@ class KullaniciKickModal(discord.ui.Modal, title="Kullanıcı Atma (Kick)"):
 
             log_embed = discord.Embed(
                 title="👢 Kullanıcı Atıldı",
-                description=f"{member.mention} (`{member.name}`) sunucudan atıldı.",
+                description=f"{member.mention} ({member.name}) sunucudan atıldı.",
                 color=discord.Color.orange(),
                 timestamp=datetime.datetime.now()
             )
@@ -1394,7 +1394,7 @@ class KullaniciKickModal(discord.ui.Modal, title="Kullanıcı Atma (Kick)"):
                 await log_channel.send(embed=log_embed)
 
             await interaction.response.send_message(
-                f"✅ {member.mention} (`{member.name}`) sunucudan atıldı.",
+                f"✅ {member.mention} ({member.name}) sunucudan atıldı.",
                 ephemeral=True
             )
 
@@ -1454,7 +1454,7 @@ class KullaniciTimeoutModal(discord.ui.Modal, title="Kullanıcı Zaman Aşımı 
 
         if not member:
             return await interaction.response.send_message(
-                f"ID `{user_id}` ile eşleşen bir kullanıcı sunucuda bulunamadı.",
+                f"ID ({user_id}) ile eşleşen bir kullanıcı sunucuda bulunamadı.",
                 ephemeral=True
             )
 
@@ -1498,7 +1498,7 @@ class KullaniciTimeoutModal(discord.ui.Modal, title="Kullanıcı Zaman Aşımı 
 
             log_embed = discord.Embed(
                 title="⏰ Kullanıcıya Zaman Aşımı Uygulandı",
-                description=f"{member.mention} (`{member.name}`) kullanıcısına zaman aşımı uygulandı.",
+                description=f"{member.mention} ({member.name}) kullanıcısına zaman aşımı uygulandı.",
                 color=discord.Color.gold(),
                 timestamp=datetime.datetime.now()
             )
@@ -1512,7 +1512,7 @@ class KullaniciTimeoutModal(discord.ui.Modal, title="Kullanıcı Zaman Aşımı 
                 await log_channel.send(embed=log_embed)
 
             await interaction.response.send_message(
-                f"✅ {member.mention} (`{member.name}`) kullanıcısına **{sure_text}** zaman aşımı uygulandı.",
+                f"✅ {member.mention} ({member.name}) kullanıcısına **{sure_text}** zaman aşımı uygulandı.",
                 ephemeral=True
             )
 
@@ -2350,7 +2350,7 @@ class KanalSecimMenu(discord.ui.Select):
             # Kullanıcıya bildirim gönder
             embed = discord.Embed(
                 title="✅ Otomatik Mesaj Eklendi",
-                description=f"Otomatik mesaj başarıyla eklendi.\n\n**Mesaj ID:** `{mesaj_id}`",
+                description=f"Otomatik mesaj başarıyla eklendi.\n\n**Mesaj ID:** {mesaj_id}",
                 color=discord.Color.green()
             )
             
@@ -2385,7 +2385,7 @@ class KanalSecimMenu(discord.ui.Select):
                 log_embed.add_field(
                     name="Mesaj Bilgileri",
                     value=(
-                        f"**Mesaj ID:** `{mesaj_id}`\n"
+                        f"**Mesaj ID:** {mesaj_id}\n"
                         f"**Kanal:** <#{kanal_id}>\n"
                         f"**Zaman Aralığı:** {', '.join(zaman_araligi_str) if zaman_araligi_str else 'Belirtilmedi'}\n"
                         f"**Tekrar Sayısı:** {'Sonsuz' if self.ana_view.tekrar_sayisi == 0 else self.ana_view.tekrar_sayisi}"
@@ -2465,7 +2465,7 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                 if deleted:
                     embed = discord.Embed(
                         title="✅ Otomatik Mesaj Silindi",
-                        description=f"ID'si `{mesaj_id}` olan otomatik mesaj başarıyla silindi.",
+                        description=f"ID'si {mesaj_id} olan otomatik mesaj başarıyla silindi.",
                         color=discord.Color.green()
                     )
                     
@@ -2482,7 +2482,7 @@ class OtomatikMesajSecModal(discord.ui.Modal):
                         log_embed.add_field(
                             name="Mesaj Bilgileri",
                             value=(
-                                f"**Mesaj ID:** `{mesaj_id}`\n"
+                                f"**Mesaj ID:** {mesaj_id}\n"
                                 f"**Kanal:** <#{mesaj['channel_id']}>\n"
                                 f"**Oluşturan:** <@{mesaj['created_by']}>"
                             ),
@@ -2536,7 +2536,7 @@ class IcerikDuzenleModal(discord.ui.Modal, title="Mesaj İçeriği Düzenle"):
             if updated:
                 embed = discord.Embed(
                     title="✅ Mesaj İçeriği Güncellendi",
-                    description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın içeriği başarıyla güncellendi.",
+                    description=f"ID'si {self.mesaj['id']} olan otomatik mesajın içeriği başarıyla güncellendi.",
                     color=discord.Color.green()
                 )
                 
@@ -2559,7 +2559,7 @@ class IcerikDuzenleModal(discord.ui.Modal, title="Mesaj İçeriği Düzenle"):
                     log_embed.add_field(
                         name="Mesaj Bilgileri",
                         value=(
-                            f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                            f"**Mesaj ID:** {self.mesaj['id']}\n"
                             f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
                             f"**Oluşturan:** <@{self.mesaj['created_by']}>"
                         ),
@@ -2662,7 +2662,7 @@ class ZamanDuzenleModal(discord.ui.Modal, title="Zaman Aralığı Düzenle"):
                 if updated:
                     embed = discord.Embed(
                         title="✅ Zaman Aralığı Güncellendi",
-                        description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın zaman aralığı başarıyla güncellendi.",
+                        description=f"ID'si {self.mesaj['id']} olan otomatik mesajın zaman aralığı başarıyla güncellendi.",
                         color=discord.Color.green()
                     )
                     
@@ -2693,7 +2693,7 @@ class ZamanDuzenleModal(discord.ui.Modal, title="Zaman Aralığı Düzenle"):
                         log_embed.add_field(
                             name="Mesaj Bilgileri",
                             value=(
-                                f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                                f"**Mesaj ID:** {self.mesaj['id']}\n"
                                 f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
                                 f"**Oluşturan:** <@{self.mesaj['created_by']}>\n"
                                 f"**Yeni Zaman Aralığı:** {', '.join(zaman_araligi_str) if zaman_araligi_str else 'Belirtilmedi'}"
@@ -2757,7 +2757,7 @@ class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
                 if updated:
                     embed = discord.Embed(
                         title="✅ Tekrar Sayısı Güncellendi",
-                        description=f"ID'si `{self.mesaj['id']}` olan otomatik mesajın tekrar sayısı başarıyla güncellendi.",
+                        description=f"ID'si {self.mesaj['id']} olan otomatik mesajın tekrar sayısı başarıyla güncellendi.",
                         color=discord.Color.green()
                     )
                     
@@ -2780,7 +2780,7 @@ class TekrarDuzenleModal(discord.ui.Modal, title="Tekrar Sayısı Düzenle"):
                         log_embed.add_field(
                             name="Mesaj Bilgileri",
                             value=(
-                                f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                                f"**Mesaj ID:** {self.mesaj['id']}\n"
                                 f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
                                 f"**Oluşturan:** <@{self.mesaj['created_by']}>\n"
                                 f"**Yeni Tekrar Sayısı:** {'Sonsuz' if tekrar_sayisi == 0 else tekrar_sayisi}"
@@ -2879,7 +2879,7 @@ class KanalDuzenleView(discord.ui.View):
             
             embed = discord.Embed(
                 title="📋 Kanal Seç",
-                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                description=f"**Mesaj ID:** {self.mesaj['id']}\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
                 color=0x3498db
             )
             embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
@@ -2897,7 +2897,7 @@ class KanalDuzenleView(discord.ui.View):
             
             embed = discord.Embed(
                 title="📋 Kanal Seç",
-                description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+                description=f"**Mesaj ID:** {self.mesaj['id']}\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
                 color=0x3498db
             )
             embed.set_footer(text=f"Sayfa {self.sayfa + 1}/{self.toplam_sayfa} • Toplam {len(self.text_channels)} kanal")
@@ -2959,7 +2959,7 @@ class KanalDuzenleMenu(discord.ui.Select):
             if updated:
                 embed = discord.Embed(
                     title="✅ Kanal Güncellendi",
-                    description=f"ID'si `{self.ana_view.mesaj['id']}` olan otomatik mesajın kanalı başarıyla güncellendi.",
+                    description=f"ID'si {self.ana_view.mesaj['id']} olan otomatik mesajın kanalı başarıyla güncellendi.",
                     color=discord.Color.green()
                 )
                 
@@ -2982,7 +2982,7 @@ class KanalDuzenleMenu(discord.ui.Select):
                     log_embed.add_field(
                         name="Mesaj Bilgileri",
                         value=(
-                            f"**Mesaj ID:** `{self.ana_view.mesaj['id']}`\n"
+                            f"**Mesaj ID:** {self.ana_view.mesaj['id']}\n"
                             f"**Eski Kanal:** <#{self.ana_view.mesaj['channel_id']}>\n"
                             f"**Yeni Kanal:** <#{kanal_id}>\n"
                             f"**Oluşturan:** <@{self.ana_view.mesaj['created_by']}>"
@@ -3107,7 +3107,7 @@ class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle
                 if updated:
                     embed = discord.Embed(
                         title="✅ Otomatik Mesaj Güncellendi",
-                        description=f"ID'si `{self.mesaj['id']}` olan otomatik mesaj başarıyla güncellendi.",
+                        description=f"ID'si {self.mesaj['id']} olan otomatik mesaj başarıyla güncellendi.",
                         color=discord.Color.green()
                     )
                     
@@ -3148,7 +3148,7 @@ class OtomatikMesajDuzenleModal(discord.ui.Modal, title="Otomatik Mesaj Düzenle
                         log_embed.add_field(
                             name="Mesaj Bilgileri",
                             value=(
-                                f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                                f"**Mesaj ID:** {self.mesaj['id']}\n"
                                 f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
                                 f"**Oluşturan:** <@{self.mesaj['created_by']}>\n"
                                 f"**Yeni Zaman Aralığı:** {', '.join(zaman_araligi_str) if zaman_araligi_str else 'Belirtilmedi'}\n"
@@ -3405,7 +3405,7 @@ class MesajDetayView(discord.ui.View):
         
         embed = discord.Embed(
             title="📋 Kanal Seç",
-            description=f"**Mesaj ID:** `{self.mesaj['id']}`\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
+            description=f"**Mesaj ID:** {self.mesaj['id']}\n**Mevcut Kanal:** <#{self.mesaj['channel_id']}>\n\nYeni kanal seçin:",
             color=0x3498db
         )
         embed.set_footer(text=f"Sayfa {view.sayfa + 1}/{view.toplam_sayfa} • Toplam {len(view.text_channels)} kanal")
@@ -3482,7 +3482,7 @@ class MesajSilOnayView(discord.ui.View):
         if deleted:
             embed = discord.Embed(
                 title="✅ Otomatik Mesaj Silindi",
-                description=f"ID'si `{self.mesaj['id']}` olan otomatik mesaj başarıyla silindi.",
+                description=f"ID'si {self.mesaj['id']} olan otomatik mesaj başarıyla silindi.",
                 color=discord.Color.green()
             )
             
@@ -3499,7 +3499,7 @@ class MesajSilOnayView(discord.ui.View):
                 log_embed.add_field(
                     name="Mesaj Bilgileri",
                     value=(
-                        f"**Mesaj ID:** `{self.mesaj['id']}`\n"
+                        f"**Mesaj ID:** {self.mesaj['id']}\n"
                         f"**Kanal:** <#{self.mesaj['channel_id']}>\n"
                         f"**Oluşturan:** <@{self.mesaj['created_by']}>"
                     ),
@@ -3824,7 +3824,7 @@ class SearchNotesModal(discord.ui.Modal, title="Not Arama"):
             
             embed.add_field(
                 name=f"Not #{note['id']} - {note['username']}",
-                value=f"**Kullanıcı ID:** `{note['user_id']}`\n"
+                value=f"**Kullanıcı ID:** {note['user_id']}\n"
                       f"**İçerik:** {content_preview}\n"
                       f"**Ekleyen:** {note['created_by_username']}\n"
                       f"**Tarih:** {created_date}",
@@ -3895,7 +3895,7 @@ class FilterUserModal(discord.ui.Modal, title="Kullanıcıya Göre Filtrele"):
         
         embed = discord.Embed(
             title=f"📝 {display_name} - Kullanıcı Notları",
-            description=f"**Kullanıcı ID:** `{user_id}`\n**Toplam Not:** {len(notes)}",
+            description=f"**Kullanıcı ID:** {user_id}\n**Toplam Not:** {len(notes)}",
             color=0x3498db,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         )
@@ -3996,8 +3996,8 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
         # Başarı mesajı
         embed = discord.Embed(
             title="✅ Not Başarıyla Eklendi",
-            description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
-                       f"**Not ID:** `{note_id}`\n"
+            description=f"**Kullanıcı:** {user.mention} ({user.id})\n"
+                       f"**Not ID:** {note_id}\n"
                        f"**İçerik:** {content[:100]}{'...' if len(content) > 100 else ''}",
             color=0x00ff00,
             timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
@@ -4012,9 +4012,9 @@ class AddNoteModal(discord.ui.Modal, title="Kullanıcı Notu Ekle"):
             if log_channel:
                 log_embed = discord.Embed(
                     title="📝 Yeni Kullanıcı Notu Eklendi",
-                    description=f"**Kullanıcı:** {user.mention} (`{user.id}`)\n"
-                               f"**Not ID:** `{note_id}`\n"
-                               f"**Ekleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                    description=f"**Kullanıcı:** {user.mention} ({user.id})\n"
+                               f"**Not ID:** {note_id}\n"
+                               f"**Ekleyen:** {interaction.user.mention} ({interaction.user.id})",
                     color=0x3498db,
                     timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 )
@@ -4084,7 +4084,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
 
         if not start_iso or not end_iso:
             return await interaction.response.send_message(
-                "❌ Geçersiz tarih formatı. Lütfen `GG.AA.YYYY` formatında girin (örn: `24.04.2026`).",
+                "❌ Geçersiz tarih formatı. Lütfen GG.AA.YYYY formatında girin (örn: 24.04.2026).",
                 ephemeral=True
             )
 
@@ -4129,7 +4129,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
                 ex_start, ex_end = existing['start_date'], existing['end_date']
             return await interaction.response.send_message(
                 f"❌ Zaten aktif veya bekleyen bir mazeretiniz var:\n"
-                f"`#{existing['id']}` • `{ex_start}` → `{ex_end}`\n\n"
+                f"#{existing['id']} • {ex_start} → {ex_end}\n\n"
                 f"Yeni bir mazeret eklemek için önce mevcut mazeretinizi **📋 Mazeretlerim** menüsünden silin.",
                 ephemeral=True
             )
@@ -4176,7 +4176,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
                 log_embed = discord.Embed(
                     title="📋 Yeni Mazeret Bildirimi",
                     description=(
-                        f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                        f"**Yetkili:** {interaction.user.mention} ({interaction.user.id})\n"
                         f"**Tarih Aralığı:** {start_display} → {end_display}\n"
                         f"**Kayıt ID:** #{excuse_id}\n"
                         f"**Durum:** 🟡 Onay Bekliyor"
@@ -4205,7 +4205,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
                         f"**Yetkili:** {interaction.user.mention}\n"
                         f"**Tarih Aralığı:** {start_display} → {end_display}\n"
                         f"**Kayıt ID:** #{excuse_id}\n\n"
-                        f"İncelemek için: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                        f"İncelemek için: /yetkili-panel → 📌 Mazeret → 🆕 Onay Bekleyenler"
                     ),
                     color=0xf1c40f,
                     timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
@@ -4423,7 +4423,7 @@ class MazeretSilSelect(discord.ui.Select):
                 log_embed = discord.Embed(
                     title="🗑️ Mazeret Silindi",
                     description=(
-                        f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                        f"**Yetkili:** {interaction.user.mention} ({interaction.user.id})\n"
                         f"**Tarih Aralığı:** {sd} → {ed}\n"
                         f"**Silinen Kayıt ID:** #{excuse_id}"
                     ),
@@ -4605,7 +4605,7 @@ class TumMazeretlerView(discord.ui.View):
                 sd = _format_mazeret_date(exc['start_date'])
                 ed = _format_mazeret_date(exc['end_date'])
                 member = interaction.guild.get_member(exc['user_id'])
-                user_display = member.mention if member else f"`{exc['username']}`"
+                user_display = member.mention if member else f"{exc['username']}"
                 reason_preview = exc['reason'][:200] + ('...' if len(exc['reason']) > 200 else '')
 
                 date_part = f" • {date_emoji.get(date_status, '•')} {date_status}" if onay_status != 'rejected' else ""
@@ -4714,7 +4714,7 @@ def _log_excuse_decision(guild, excuse, action_label, reviewer, review_message=N
             color = 0x2ecc71 if action_label == 'onaylandı' else 0xe74c3c
             title_emoji = '✅' if action_label == 'onaylandı' else '❌'
             member = guild.get_member(excuse['user_id'])
-            user_display = member.mention if member else f"`{excuse['username']}` ({excuse['user_id']})"
+            user_display = member.mention if member else f"{excuse['username']} ({excuse['user_id']})"
             tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             log_embed = discord.Embed(
                 title=f"{title_emoji} Mazeret {action_label.capitalize()}",
@@ -4722,7 +4722,7 @@ def _log_excuse_decision(guild, excuse, action_label, reviewer, review_message=N
                     f"**Yetkili:** {user_display}\n"
                     f"**Tarih Aralığı:** {sd} → {ed}\n"
                     f"**Kayıt ID:** #{excuse['id']}\n"
-                    f"**İnceleyen:** {reviewer.mention} (`{reviewer.id}`)"
+                    f"**İnceleyen:** {reviewer.mention} ({reviewer.id})"
                 ),
                 color=color,
                 timestamp=tr_now
@@ -4867,7 +4867,7 @@ class MazeretOnayView(discord.ui.View):
                 sd = _format_mazeret_date(exc['start_date'])
                 ed = _format_mazeret_date(exc['end_date'])
                 member = interaction.guild.get_member(exc['user_id'])
-                user_display = member.mention if member else f"`{exc['username']}`"
+                user_display = member.mention if member else f"{exc['username']}"
                 reason_preview = exc['reason'][:180] + ('...' if len(exc['reason']) > 180 else '')
                 embed.add_field(
                     name=f"#{exc['id']} • {sd} → {ed} • {date_emoji.get(date_status, '•')} {date_status}",
@@ -4981,7 +4981,7 @@ class MazeretOnayDetayView(discord.ui.View):
         sd = _format_mazeret_date(exc['start_date'])
         ed = _format_mazeret_date(exc['end_date'])
         member = guild.get_member(exc['user_id'])
-        user_display = member.mention if member else f"`{exc['username']}` ({exc['user_id']})"
+        user_display = member.mention if member else f"{exc['username']} ({exc['user_id']})"
 
         # Oluşturulma zamanı (UTC ISO → Istanbul TR)
         created_display = exc.get('created_at') or "—"
@@ -5045,7 +5045,7 @@ class MazeretOnayDetayView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=list_view)
         list_view.message = await interaction.original_response()
         await interaction.followup.send(
-            f"✅ `#{self.excuse['id']}` numaralı mazeret onaylandı.",
+            f"✅ #{self.excuse['id']} numaralı mazeret onaylandı.",
             ephemeral=True
         )
 
@@ -5121,7 +5121,7 @@ class MazeretRedModal(discord.ui.Modal, title="Mazereti Reddet"):
         await interaction.response.edit_message(embed=embed, view=list_view)
         list_view.message = await interaction.original_response()
         await interaction.followup.send(
-            f"❌ `#{self.detail_view.excuse['id']}` numaralı mazeret reddedildi.",
+            f"❌ #{self.detail_view.excuse['id']} numaralı mazeret reddedildi.",
             ephemeral=True
         )
 
@@ -5166,7 +5166,7 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
         note = await db.get_note_by_id(note_id, interaction.guild.id)
         if not note:
             await interaction.response.send_message(
-                f"❌ `{note_id}` ID'li not bulunamadı!",
+                f"❌ {note_id} ID'li not bulunamadı!",
                 ephemeral=True
             )
             return
@@ -5177,8 +5177,8 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
         if success:
             embed = discord.Embed(
                 title="✅ Not Başarıyla Güncellendi",
-                description=f"**Not ID:** `{note_id}`\n"
-                           f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+                description=f"**Not ID:** {note_id}\n"
+                           f"**Kullanıcı:** <@{note['user_id']}> ({note['user_id']})\n"
                            f"**Eski İçerik:** {note['note_content'][:100]}{'...' if len(note['note_content']) > 100 else ''}\n"
                            f"**Yeni İçerik:** {new_content[:100]}{'...' if len(new_content) > 100 else ''}",
                 color=0x00ff00,
@@ -5194,9 +5194,9 @@ class EditNoteModal(discord.ui.Modal, title="Not Düzenle"):
                 if log_channel:
                     log_embed = discord.Embed(
                         title="✏️ Kullanıcı Notu Güncellendi",
-                        description=f"**Not ID:** `{note_id}`\n"
-                                   f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
-                                   f"**Düzenleyen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        description=f"**Not ID:** {note_id}\n"
+                                   f"**Kullanıcı:** <@{note['user_id']}> ({note['user_id']})\n"
+                                   f"**Düzenleyen:** {interaction.user.mention} ({interaction.user.id})",
                         color=0xf39c12,
                         timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                     )
@@ -5251,7 +5251,7 @@ class DeleteNoteModal(discord.ui.Modal, title="Not Sil"):
         note = await db.get_note_by_id(note_id, interaction.guild.id)
         if not note:
             await interaction.response.send_message(
-                f"❌ `{note_id}` ID'li not bulunamadı!",
+                f"❌ {note_id} ID'li not bulunamadı!",
                 ephemeral=True
             )
             return
@@ -5261,8 +5261,8 @@ class DeleteNoteModal(discord.ui.Modal, title="Not Sil"):
         
         embed = discord.Embed(
             title="⚠️ Not Silme Onayı",
-            description=f"**Not ID:** `{note_id}`\n"
-                       f"**Kullanıcı:** <@{note['user_id']}> (`{note['user_id']}`)\n"
+            description=f"**Not ID:** {note_id}\n"
+                       f"**Kullanıcı:** <@{note['user_id']}> ({note['user_id']})\n"
                        f"**İçerik:** {note['note_content'][:200]}{'...' if len(note['note_content']) > 200 else ''}\n"
                        f"**Ekleyen:** {note['created_by_username']}\n"
                        f"**Tarih:** {datetime.datetime.fromisoformat(note['created_at']).strftime('%d.%m.%Y %H:%M')}\n\n"
@@ -5297,8 +5297,8 @@ class DeleteNoteConfirmView(discord.ui.View):
         if success:
             embed = discord.Embed(
                 title="✅ Not Başarıyla Silindi",
-                description=f"**Not ID:** `{self.note['id']}`\n"
-                           f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
+                description=f"**Not ID:** {self.note['id']}\n"
+                           f"**Kullanıcı:** <@{self.note['user_id']}> ({self.note['user_id']})\n"
                            f"**Silinen İçerik:** {self.note['note_content'][:100]}{'...' if len(self.note['note_content']) > 100 else ''}",
                 color=0x00ff00,
                 timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
@@ -5317,9 +5317,9 @@ class DeleteNoteConfirmView(discord.ui.View):
                 if log_channel:
                     log_embed = discord.Embed(
                         title="🗑️ Kullanıcı Notu Silindi",
-                        description=f"**Not ID:** `{self.note['id']}`\n"
-                                   f"**Kullanıcı:** <@{self.note['user_id']}> (`{self.note['user_id']}`)\n"
-                                   f"**Silen:** {interaction.user.mention} (`{interaction.user.id}`)",
+                        description=f"**Not ID:** {self.note['id']}\n"
+                                   f"**Kullanıcı:** <@{self.note['user_id']}> ({self.note['user_id']})\n"
+                                   f"**Silen:** {interaction.user.mention} ({interaction.user.id})",
                         color=0xe74c3c,
                         timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                     )
@@ -5419,7 +5419,7 @@ class YetkiliPanel(commands.Cog):
                         sd = _format_mazeret_date(exc['start_date'])
                         ed = _format_mazeret_date(exc['end_date'])
                         member = guild.get_member(exc['user_id'])
-                        user_display = member.mention if member else f"`{exc['username']}`"
+                        user_display = member.mention if member else f"{exc['username']}"
                         created_display = exc.get('created_at') or "—"
                         try:
                             dt = datetime.datetime.fromisoformat(created_display.replace("Z", "+00:00"))
@@ -5438,7 +5438,7 @@ class YetkiliPanel(commands.Cog):
                         description=(
                             f"Aşağıdaki **{len(overdue)}** mazeret **24 saatten** uzun süredir onay bekliyor:\n\n"
                             + "\n\n".join(lines)
-                            + "\n\n`/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                            + "\n\n/yetkili-panel → 📌 Mazeret → 🆕 Onay Bekleyenler"
                         ),
                         color=0xe67e22,
                         timestamp=overdue_tr_now
