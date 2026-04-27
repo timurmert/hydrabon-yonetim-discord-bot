@@ -445,7 +445,7 @@ class YetkiliPanelView(discord.ui.View):
             return await interaction.response.edit_message(embed=yetersiz_yetki_embed("Yetkili"), view=self)
 
         view = MazeretPanelView(self.cog, self.user)
-        embed = build_mazeret_panel_embed(interaction.user)
+        embed = build_mazeret_panel_embed(interaction.user, interaction.guild)
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
@@ -4151,36 +4151,38 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
         except Exception:
             start_display, end_display = start_iso, end_iso
 
+        tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         embed = discord.Embed(
-            title="🟡 Mazeret Gönderildi — Onay Bekleniyor",
+            title="🟡 Mazeret Bildirimi Alındı",
             description=(
                 f"**Yetkili:** {interaction.user.mention}\n"
-                f"**Başlangıç:** `{start_display}`\n"
-                f"**Bitiş:** `{end_display}`\n"
-                f"**Kayıt ID:** `{excuse_id}`\n"
+                f"**Tarih Aralığı:** {start_display} → {end_display}\n"
+                f"**Kayıt ID:** #{excuse_id}\n"
                 f"**Durum:** 🟡 Onay Bekliyor\n\n"
                 f"**Sebep:**\n{reason[:300]}{'...' if len(reason) > 300 else ''}"
             ),
             color=0xf1c40f,
-            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            timestamp=tr_now
         )
-        embed.set_footer(text="Mazeretin YK onayı bekliyor.")
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text=f"Bildiren: {interaction.user.name} • {tr_now.strftime('%d.%m.%Y %H:%M')}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
         # Yetkili Panel Log kanalına bildirim gönder
         try:
             log_channel = discord.utils.get(interaction.guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
             if log_channel:
+                log_tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
                 log_embed = discord.Embed(
-                    title="📌 Yeni Mazeret Bildirimi (Onay Bekliyor)",
+                    title="📋 Yeni Mazeret Bildirimi",
                     description=(
                         f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
-                        f"**Tarih Aralığı:** `{start_display}` → `{end_display}`\n"
-                        f"**Kayıt ID:** `{excuse_id}`\n"
+                        f"**Tarih Aralığı:** {start_display} → {end_display}\n"
+                        f"**Kayıt ID:** #{excuse_id}\n"
                         f"**Durum:** 🟡 Onay Bekliyor"
                     ),
                     color=0xf1c40f,
-                    timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                    timestamp=log_tr_now
                 )
                 log_embed.add_field(
                     name="Sebep",
@@ -4188,7 +4190,7 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
                     inline=False
                 )
                 log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                log_embed.set_footer(text=f"Bildiren: {interaction.user.name}")
+                log_embed.set_footer(text=f"Bildiren: {interaction.user.name} • {log_tr_now.strftime('%d.%m.%Y %H:%M')}")
                 await log_channel.send(embed=log_embed)
         except Exception as e:
             print(f"Yetkili Panel Log kanalına mazeret bildirimi gönderilemedi: {e}")
@@ -4201,8 +4203,8 @@ class MazeretBildirModal(discord.ui.Modal, title="Mazeret Bildir"):
                     title="🆕 Yeni Mazeret — Onay Bekliyor",
                     description=(
                         f"**Yetkili:** {interaction.user.mention}\n"
-                        f"**Tarih Aralığı:** `{start_display}` → `{end_display}`\n"
-                        f"**Kayıt ID:** `{excuse_id}`\n\n"
+                        f"**Tarih Aralığı:** {start_display} → {end_display}\n"
+                        f"**Kayıt ID:** #{excuse_id}\n\n"
                         f"İncelemek için: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
                     ),
                     color=0xf1c40f,
@@ -4226,12 +4228,12 @@ def _format_mazeret_date(iso_str: str) -> str:
 
 
 def _mazeret_status(start_iso: str, end_iso: str, today_iso: str) -> str:
-    """Mazeretin bugüne göre TARİHSEL durumunu döndürür: aktif / bekliyor / geçmiş."""
+    """Mazeretin bugüne göre TARİHSEL durumunu döndürür: Aktif / Bekliyor / Geçmiş."""
     if end_iso < today_iso:
-        return "geçmiş"
+        return "Geçmiş"
     if start_iso > today_iso:
-        return "bekliyor"
-    return "aktif"
+        return "Bekliyor"
+    return "Aktif"
 
 
 def _mazeret_onay_emoji(status: str) -> str:
@@ -4252,7 +4254,7 @@ def _mazeret_onay_label(status: str) -> str:
     }.get(status, 'Onay Bekliyor')
 
 
-def build_mazeret_panel_embed(user):
+def build_mazeret_panel_embed(user, guild=None):
     """Mazeret yönetim panelinin ana embed'i."""
     embed = discord.Embed(
         title="📌 Mazeret Paneli",
@@ -4265,9 +4267,15 @@ def build_mazeret_panel_embed(user):
             "_Aynı anda yalnızca bir aktif/bekleyen mazeretin olabilir; "
             "reddedilen ve geçmişte kalan kayıtlar silinemez._"
         ),
-        color=0xf1c40f
+        color=0x3498db
     )
-    embed.set_thumbnail(url=user.display_avatar.url)
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    else:
+        embed.set_thumbnail(url=user.display_avatar.url)
+    tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+    guild_name = guild.name if guild else "HydRaboN"
+    embed.set_footer(text=f"{guild_name} • {tr_now.strftime('%d.%m.%Y %H:%M')}")
     return embed
 
 
@@ -4416,8 +4424,8 @@ class MazeretSilSelect(discord.ui.Select):
                     title="🗑️ Mazeret Silindi",
                     description=(
                         f"**Yetkili:** {interaction.user.mention} (`{interaction.user.id}`)\n"
-                        f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
-                        f"**Silinen Kayıt ID:** `{excuse_id}`"
+                        f"**Tarih Aralığı:** {sd} → {ed}\n"
+                        f"**Silinen Kayıt ID:** #{excuse_id}"
                     ),
                     color=0xe74c3c,
                     timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
@@ -4428,7 +4436,7 @@ class MazeretSilSelect(discord.ui.Select):
                     inline=False
                 )
                 log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                log_embed.set_footer(text=f"Silen: {interaction.user.name}")
+                log_embed.set_footer(text=f"Silen: {interaction.user.name} • {datetime.datetime.now(pytz.timezone('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}")
                 await log_channel.send(embed=log_embed)
         except Exception as e:
             print(f"Mazeret silme log'u gönderilemedi: {e}")
@@ -4470,7 +4478,7 @@ class MazeretlerimView(discord.ui.View):
         if not excuses:
             embed.description = "Kayıtlı mazeretin bulunmuyor."
         else:
-            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            date_emoji = {"Aktif": "🟢", "Bekliyor": "🟠", "Geçmiş": "⚪"}
             lines = []
             for exc in excuses:
                 date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
@@ -4481,19 +4489,21 @@ class MazeretlerimView(discord.ui.View):
                 ed = _format_mazeret_date(exc['end_date'])
                 reason_preview = exc['reason'][:120] + ('...' if len(exc['reason']) > 120 else '')
 
-                # Red gerekçesi varsa göster
                 extra = ""
                 if onay_status == 'rejected' and exc.get('review_message'):
                     rm = exc['review_message'][:140] + ('...' if len(exc['review_message']) > 140 else '')
                     extra = f"\n┗ *Red gerekçesi:* {rm}"
 
+                date_suffix = f" • {date_emoji.get(date_status, '•')} {date_status}" if onay_status != 'rejected' else ""
                 lines.append(
-                    f"{onay_emoji} **#{exc['id']}** `{sd}` → `{ed}` • "
-                    f"**{onay_label}** • {date_emoji.get(date_status, '•')} {date_status}\n"
+                    f"{onay_emoji} **#{exc['id']}** {sd} → {ed} • "
+                    f"**{onay_label}**{date_suffix}\n"
                     f"┗ {reason_preview}{extra}"
                 )
             embed.description = "\n\n".join(lines)
-            embed.set_footer(text="🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi")
+
+        tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        embed.set_footer(text=f"🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi  •  {tr_now.strftime('%d.%m.%Y %H:%M')}")
 
         # Silinebilir: reddedilmemiş ve bitişi gelecekte (bugün veya sonrası)
         deletable = [
@@ -4534,7 +4544,7 @@ class MazeretlerimGeriButton(discord.ui.Button):
         if interaction.user.id != view.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         mp_view = MazeretPanelView(view.cog, view.user)
-        embed = build_mazeret_panel_embed(view.user)
+        embed = build_mazeret_panel_embed(view.user, interaction.guild)
         await interaction.response.edit_message(embed=embed, view=mp_view)
         mp_view.message = await interaction.original_response()
 
@@ -4586,7 +4596,7 @@ class TumMazeretlerView(discord.ui.View):
         if not excuses:
             embed.add_field(name="Kayıt yok", value="Bu sunucuda henüz mazeret kaydı bulunmuyor.", inline=False)
         else:
-            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            date_emoji = {"Aktif": "🟢", "Bekliyor": "🟠", "Geçmiş": "⚪"}
             for exc in excuses:
                 date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
                 onay_status = exc.get('status', 'pending')
@@ -4598,9 +4608,10 @@ class TumMazeretlerView(discord.ui.View):
                 user_display = member.mention if member else f"`{exc['username']}`"
                 reason_preview = exc['reason'][:200] + ('...' if len(exc['reason']) > 200 else '')
 
+                date_part = f" • {date_emoji.get(date_status, '•')} {date_status}" if onay_status != 'rejected' else ""
                 value_lines = [
                     f"**Yetkili:** {user_display}",
-                    f"**Durum:** {onay_emoji} {onay_label} • {date_emoji.get(date_status, '•')} {date_status}",
+                    f"**Durum:** {onay_emoji} {onay_label}{date_part}",
                     f"**Sebep:** {reason_preview}"
                 ]
                 if onay_status in ('approved', 'rejected') and exc.get('reviewer_username'):
@@ -4615,7 +4626,9 @@ class TumMazeretlerView(discord.ui.View):
                     value="\n".join(value_lines),
                     inline=False
                 )
-            embed.set_footer(text="🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi")
+
+        tum_tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        embed.set_footer(text=f"🟡 Onay Bekliyor  •  ✅ Onaylandı  •  ❌ Reddedildi  •  {tum_tr_now.strftime('%d.%m.%Y %H:%M')}")
 
         # Sayfa butonlarını güncelle
         for item in self.children:
@@ -4654,7 +4667,7 @@ class TumMazeretlerView(discord.ui.View):
         if interaction.user.id != self.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         mp_view = MazeretPanelView(self.cog, self.user)
-        embed = build_mazeret_panel_embed(self.user)
+        embed = build_mazeret_panel_embed(self.user, interaction.guild)
         await interaction.response.edit_message(embed=embed, view=mp_view)
         mp_view.message = await interaction.original_response()
 
@@ -4669,18 +4682,21 @@ async def _notify_user_excuse_decision(bot, excuse, action_label, reviewer, revi
         ed = _format_mazeret_date(excuse['end_date'])
         color = 0x2ecc71 if action_label == 'onaylandı' else 0xe74c3c
         title_emoji = '✅' if action_label == 'onaylandı' else '❌'
+        tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         embed = discord.Embed(
             title=f"{title_emoji} Mazeretin {action_label.capitalize()}",
             description=(
-                f"**Kayıt ID:** `{excuse['id']}`\n"
-                f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                f"**Kayıt ID:** #{excuse['id']}\n"
+                f"**Tarih Aralığı:** {sd} → {ed}\n"
                 f"**İnceleyen:** {reviewer.mention}"
             ),
             color=color,
-            timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+            timestamp=tr_now
         )
         if review_message:
             embed.add_field(name="İnceleme Notu", value=review_message[:1024], inline=False)
+        embed.set_thumbnail(url=reviewer.display_avatar.url)
+        embed.set_footer(text=f"HydRaboN Yetkili Paneli • {tr_now.strftime('%d.%m.%Y %H:%M')}")
         await user.send(embed=embed)
     except Exception as e:
         print(f"Mazeret karar DM'i gönderilemedi: {e}")
@@ -4688,7 +4704,6 @@ async def _notify_user_excuse_decision(bot, excuse, action_label, reviewer, revi
 
 def _log_excuse_decision(guild, excuse, action_label, reviewer, review_message=None):
     """Yetkili panel log kanalına onay/red bildirimi gönderir."""
-    import asyncio as _asyncio
     async def _send():
         try:
             log_channel = discord.utils.get(guild.channels, id=YETKILI_PANEL_LOG_CHANNEL_ID)
@@ -4700,28 +4715,33 @@ def _log_excuse_decision(guild, excuse, action_label, reviewer, review_message=N
             title_emoji = '✅' if action_label == 'onaylandı' else '❌'
             member = guild.get_member(excuse['user_id'])
             user_display = member.mention if member else f"`{excuse['username']}` ({excuse['user_id']})"
+            tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
             log_embed = discord.Embed(
                 title=f"{title_emoji} Mazeret {action_label.capitalize()}",
                 description=(
                     f"**Yetkili:** {user_display}\n"
-                    f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
-                    f"**Kayıt ID:** `{excuse['id']}`\n"
+                    f"**Tarih Aralığı:** {sd} → {ed}\n"
+                    f"**Kayıt ID:** #{excuse['id']}\n"
                     f"**İnceleyen:** {reviewer.mention} (`{reviewer.id}`)"
                 ),
                 color=color,
-                timestamp=datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+                timestamp=tr_now
             )
+            excuse_reason = (excuse.get('reason') or '—')[:1024]
+            log_embed.add_field(name="Mazeret Sebebi", value=excuse_reason, inline=False)
             if review_message:
                 log_embed.add_field(
                     name="İnceleme Notu",
                     value=review_message[:1024],
                     inline=False
                 )
-            log_embed.set_footer(text=f"İnceleyen: {reviewer.name}")
+            if member:
+                log_embed.set_thumbnail(url=member.display_avatar.url)
+            log_embed.set_footer(text=f"İnceleyen: {reviewer.name} • {tr_now.strftime('%d.%m.%Y %H:%M')}")
             await log_channel.send(embed=log_embed)
         except Exception as e:
             print(f"Mazeret karar log'u gönderilemedi: {e}")
-    _asyncio.create_task(_send())
+    asyncio.create_task(_send())
 
 
 class MazeretOnaySelect(discord.ui.Select):
@@ -4832,6 +4852,7 @@ class MazeretOnayView(discord.ui.View):
             ),
             color=0xf1c40f
         )
+        embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
 
         if not pending:
             embed.add_field(
@@ -4840,7 +4861,7 @@ class MazeretOnayView(discord.ui.View):
                 inline=False
             )
         else:
-            date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}
+            date_emoji = {"Aktif": "🟢", "Bekliyor": "🟠", "Geçmiş": "⚪"}
             for exc in pending:
                 date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
                 sd = _format_mazeret_date(exc['start_date'])
@@ -4853,7 +4874,9 @@ class MazeretOnayView(discord.ui.View):
                     value=f"**Yetkili:** {user_display}\n**Sebep:** {reason_preview}",
                     inline=False
                 )
-            embed.set_footer(text="🟢 Aktif  •  🟠 Bekliyor  •  ⚪ Geçmiş (süresi dolmuş pending)")
+
+        onay_tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
+        embed.set_footer(text=f"🟢 Aktif  •  🟠 Bekliyor  •  ⚪ Geçmiş  •  {onay_tr_now.strftime('%d.%m.%Y %H:%M')}")
 
         # View bileşenlerini yeniden kur
         self.clear_items()
@@ -4926,7 +4949,7 @@ class MazeretOnayGeriButton(discord.ui.Button):
         if interaction.user.id != view.user.id:
             return await interaction.response.send_message("Bu panel size ait değil!", ephemeral=True)
         mp_view = MazeretPanelView(view.cog, view.user)
-        embed = build_mazeret_panel_embed(view.user)
+        embed = build_mazeret_panel_embed(view.user, interaction.guild)
         await interaction.response.edit_message(embed=embed, view=mp_view)
         mp_view.message = await interaction.original_response()
 
@@ -4954,7 +4977,7 @@ class MazeretOnayDetayView(discord.ui.View):
         exc = self.excuse
         today_iso = datetime.datetime.now(pytz.timezone('Europe/Istanbul')).date().isoformat()
         date_status = _mazeret_status(exc['start_date'], exc['end_date'], today_iso)
-        date_emoji = {"aktif": "🟢", "bekliyor": "🟠", "geçmiş": "⚪"}.get(date_status, "•")
+        date_emoji = {"Aktif": "🟢", "Bekliyor": "🟠", "Geçmiş": "⚪"}.get(date_status, "•")
         sd = _format_mazeret_date(exc['start_date'])
         ed = _format_mazeret_date(exc['end_date'])
         member = guild.get_member(exc['user_id'])
@@ -4971,20 +4994,22 @@ class MazeretOnayDetayView(discord.ui.View):
         except Exception:
             pass
 
+        detay_tr_now = datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
         embed = discord.Embed(
             title=f"🔍 Mazeret İnceleme — #{exc['id']}",
             description=(
                 f"**Yetkili:** {user_display}\n"
-                f"**Tarih Aralığı:** `{sd}` → `{ed}`\n"
+                f"**Tarih Aralığı:** {sd} → {ed}\n"
                 f"**Durum:** 🟡 Onay Bekliyor • {date_emoji} {date_status}\n"
-                f"**Bildirim Zamanı:** `{created_display}`"
+                f"**Bildirim Zamanı:** {created_display}"
             ),
-            color=0xf1c40f
+            color=0xf1c40f,
+            timestamp=detay_tr_now
         )
         embed.add_field(name="Sebep", value=exc['reason'][:1024], inline=False)
         if member:
             embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="Kararın ilgili yetkiliye DM ile bildirilecek.")
+        embed.set_footer(text=f"Karar ilgili yetkiliye DM ile bildirilecek • {detay_tr_now.strftime('%d.%m.%Y %H:%M')}")
         return embed
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.success, emoji="✅", row=0)
@@ -5404,19 +5429,21 @@ class YetkiliPanel(commands.Cog):
                         except Exception:
                             pass
                         lines.append(
-                            f"• `#{exc['id']}` {user_display} • `{sd}` → `{ed}` • bildirildi: `{created_display}`"
+                            f"**#{exc['id']}** {user_display} — {sd} → {ed}\n┗ Bildirildi: {created_display}"
                         )
 
+                    overdue_tr_now = datetime.datetime.now(tr_tz)
                     embed = discord.Embed(
-                        title="⏰ 24 Saati Geçmiş Mazeretler",
+                        title="⏰ Onay Bekleyen Mazeretler — Hatırlatma",
                         description=(
-                            f"Aşağıdaki **{len(overdue)}** mazeret 24 saatten uzun süredir onay bekliyor:\n\n"
-                            + "\n".join(lines)
-                            + "\n\nLütfen inceleyin: `/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
+                            f"Aşağıdaki **{len(overdue)}** mazeret **24 saatten** uzun süredir onay bekliyor:\n\n"
+                            + "\n\n".join(lines)
+                            + "\n\n`/yetkili-panel` → 📌 Mazeret → 🆕 Onay Bekleyenler"
                         ),
                         color=0xe67e22,
-                        timestamp=datetime.datetime.now(tr_tz)
+                        timestamp=overdue_tr_now
                     )
+                    embed.set_footer(text=f"HydRaboN Yetkili Paneli • Otomatik Hatırlatma • {overdue_tr_now.strftime('%d.%m.%Y %H:%M')}")
 
                     try:
                         await yk_channel.send(
