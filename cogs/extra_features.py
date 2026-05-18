@@ -56,7 +56,6 @@ class ExtraFeatures(commands.Cog):
         # Cache optimizasyon ayarları
         self.MAX_CACHE_USERS = 500  # Maksimum cache'de tutulacak kullanıcı sayısı
         self.CACHE_CLEANUP_INTERVAL = 300  # Cache temizliği için saniye (5 dakika)
-        self.MAX_MESSAGES_PER_USER = 10  # Kullanıcı başına maksimum tutulacak mesaj
         self.INACTIVE_USER_TIMEOUT = 600  # İnaktif kullanıcı timeout (10 dakika)
         
         # Temizlik için son çalıştırma zamanı
@@ -547,66 +546,67 @@ class ExtraFeatures(commands.Cog):
                 break
     
     async def check_spam_protection(self, message):
-        """Spam koruma kontrolü yapar - Optimize edilmiş versiyon"""
+        """Spam koruma kontrolü - Art arda aynı mesaj tespiti"""
         if not message.guild:
-            return  # DM mesajlarını kontrol etme
-            
-        # Belirli kategori içindeki kanalları hariç tut
+            return
+
         EXCLUDED_CATEGORY_IDS = {1036080439942713365, 1029089771525521520}
         if message.channel.category and message.channel.category.id in EXCLUDED_CATEGORY_IDS:
             return
-            
+
         user_id = message.author.id
         current_time = datetime.datetime.now(self.turkey_tz)
         message_content = message.content.strip()
-        
-        # Boş mesajları kontrol etme
+
         if not message_content:
             return
-            
-        # Periyodik cache temizliği
+
         await self.periodic_cache_cleanup(current_time)
-        
-        # Cache boyut kontrolü - Çok büyükse en eski kullanıcıları temizle
         await self.manage_cache_size()
-        
-        # Kullanıcının mesaj geçmişini al veya oluştur
+
         if user_id not in self.user_message_cache:
-            self.user_message_cache[user_id] = {'last_activity': current_time, 'messages': []}
-            
+            self.user_message_cache[user_id] = {
+                'last_activity': current_time,
+                'last_content': None,
+                'last_channel': None,
+                'last_msg_time': current_time,
+                'streak': 0,
+                'streak_messages': []
+            }
+
         user_data = self.user_message_cache[user_id]
-        user_data['last_activity'] = current_time  # Son aktivite zamanını güncelle
-        user_messages = user_data['messages']
-        
-        # Eski mesajları temizle (zaman penceresi dışındaki)
-        cutoff_time = current_time - datetime.timedelta(seconds=self.SPAM_TIME_WINDOW)
-        user_messages[:] = [msg for msg in user_messages if msg['timestamp'] > cutoff_time]
-        
-        # Kullanıcı başına mesaj limiti kontrolü
-        if len(user_messages) >= self.MAX_MESSAGES_PER_USER:
-            user_messages.pop(0)  # En eski mesajı çıkar
-        
-        # Yeni mesajı ekle (message objesi yerine sadece gerekli bilgiler)
-        new_message = {
+        user_data['last_activity'] = current_time
+
+        last_content = user_data['last_content']
+        last_channel = user_data['last_channel']
+        last_msg_time = user_data['last_msg_time']
+        time_since_last = (current_time - last_msg_time).total_seconds()
+
+        new_msg = {
             'content': message_content,
             'timestamp': current_time,
             'channel_id': message.channel.id,
             'message_id': message.id
         }
-        user_messages.append(new_message)
-        
-        # Aynı mesajın tekrar sayısını kontrol et (sadece aynı kanalda)
-        same_message_count = 0
-        same_messages = []
-        
-        for msg in user_messages:
-            if msg['content'] == message_content and msg['channel_id'] == message.channel.id:
-                same_message_count += 1
-                same_messages.append(msg)
-        
-        # Spam tespit edildi mi? (Sadece ilk spam tespitinde işlem yap)
-        if same_message_count == self.SPAM_MESSAGE_LIMIT:
-            await self.handle_spam_detected(message, same_messages, message_content)
+
+        # Aynı mesaj, aynı kanal ve zaman penceresi içindeyse streak devam eder.
+        # Farklı bir mesaj yazılırsa streak sıfırlanır.
+        if (message_content == last_content
+                and message.channel.id == last_channel
+                and time_since_last <= self.SPAM_TIME_WINDOW):
+            user_data['streak'] += 1
+            user_data['streak_messages'].append(new_msg)
+        else:
+            user_data['streak'] = 1
+            user_data['last_content'] = message_content
+            user_data['last_channel'] = message.channel.id
+            user_data['streak_messages'] = [new_msg]
+
+        user_data['last_msg_time'] = current_time
+
+        if user_data['streak'] >= self.SPAM_MESSAGE_LIMIT:
+            spam_messages = list(user_data['streak_messages'][-self.SPAM_MESSAGE_LIMIT:])
+            await self.handle_spam_detected(message, spam_messages, message_content)
     
     async def periodic_cache_cleanup(self, current_time):
         """Periyodik cache temizliği yapar"""
@@ -912,9 +912,9 @@ class ExtraFeatures(commands.Cog):
                         # Kısa ve öz yanıt gönder
                         await message.reply(response_text, mention_author=False)
                     
-        except Exception as e:
+        except Exception:
             pass
-    
+
     async def process_mention_violation(self, user, mentioned_users):
         """Etiketleme ihlalini işler ve kademeli timeout uygular - Optimize edilmiş"""
         try:
