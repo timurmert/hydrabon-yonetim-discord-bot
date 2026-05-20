@@ -443,7 +443,7 @@ class BumpTracker(commands.Cog):
                                 ch = None
                         if ch:
                             try:
-                                await ch.send("⚠️ Son 12 saat içinde herhangi bir bump yapılmadı! Lütfen <#1366027014154223719> kanalını takip edip '/bump' komutunu zamanında kullanın! ||@everyone||")
+                                await ch.send("⚠️ Son 12 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin.")
                                 self._last_bump_inactivity_notified_for_time = key
                             except Exception:
                                 pass
