@@ -145,7 +145,7 @@ class BumpTracker(commands.Cog):
     async def cog_load(self):
         self.db = await get_db()
         await self.create_tables()
-        # Başlat: 12 saat bump yapılmadıysa uyarı kontrol task'ı
+        # Başlat: 4 saat bump yapılmadıysa uyarı kontrol task'ı
         try:
             if not self.bump_inactivity_task.is_running():
                 self.bump_inactivity_task.start()
@@ -411,9 +411,9 @@ class BumpTracker(commands.Cog):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(hours=4)
     async def bump_inactivity_task(self):
-        """Her 30 dakikada bir son 12 saatte bump var mı kontrol eder; yoksa yetkili-sohbet'e uyarı gönderir.
+        """Her 4 saatte bir son 4 saatte bump var mı kontrol eder; yoksa yetkili-sohbet'e uyarı gönderir.
         Aynı durum için tekrarlı spam'ı engellemek adına son bildirilen bump zamanını izler."""
         try:
             guild = self.bot.get_guild(self.GUILD_ID)
@@ -432,7 +432,7 @@ class BumpTracker(commands.Cog):
                 except Exception:
                     return
                 delta_hours = (now_utc - latest_dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600.0
-                if delta_hours >= 12:
+                if delta_hours >= 4:
                     key = latest_time_str
                     if self._last_bump_inactivity_notified_for_time != key:
                         ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
@@ -443,7 +443,7 @@ class BumpTracker(commands.Cog):
                                 ch = None
                         if ch:
                             try:
-                                await ch.send("⚠️ Son 12 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin.")
+                                await ch.send("⚠️ Son 4 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin.")
                                 self._last_bump_inactivity_notified_for_time = key
                             except Exception:
                                 pass
