@@ -6578,29 +6578,32 @@ class SistemDurumuView(discord.ui.View):
             )
         
         # === CACHE BİLGİLERİ ===
-        try:
-            extra_features_cog = self.cog.bot.get_cog("ExtraFeatures")
-            if extra_features_cog:
-                total_cache_messages = sum(len(user_data['messages']) for user_data in extra_features_cog.user_message_cache.values())
-                
-                embed.add_field(
-                    name="🗄️ Cache Durumu",
-                    value=f"**Spam Cache Kullanıcıları:** {len(extra_features_cog.user_message_cache):,}\n"
-                          f"**Toplam Cache Mesajları:** {total_cache_messages:,}\n"
-                          f"**Cache Limiti:** {extra_features_cog.MAX_CACHE_USERS:,}\n"
-                          f"**Cache Kullanım Oranı:** {(len(extra_features_cog.user_message_cache) / extra_features_cog.MAX_CACHE_USERS * 100):.1f}%",
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="🗄️ Cache Durumu",
-                    value="❌ ExtraFeatures modülü bulunamadı",
-                    inline=False
-                )
-        except Exception as e:
+        extra_features_cog = self.cog.bot.get_cog("ExtraFeatures")
+        if extra_features_cog:
+            spam_cache = getattr(extra_features_cog, 'user_message_cache', {})
+            mention_cache = getattr(extra_features_cog, 'mention_violations', {})
+            max_users = getattr(extra_features_cog, 'MAX_CACHE_USERS', 500)
+
+            total_streak_msgs = sum(
+                len(user_data.get('streak_messages', []))
+                for user_data in spam_cache.values()
+                if isinstance(user_data, dict)
+            )
+            cache_user_count = len(spam_cache)
+            usage_pct = (cache_user_count / max_users * 100) if max_users else 0.0
+
             embed.add_field(
                 name="🗄️ Cache Durumu",
-                value=f"❌ Cache bilgileri alınamadı: {e}",
+                value=f"**Spam Cache Kullanıcıları:** {cache_user_count:,} / {max_users:,}\n"
+                      f"**Aktif Streak Mesajları:** {total_streak_msgs:,}\n"
+                      f"**Cache Kullanım Oranı:** {usage_pct:.1f}%\n"
+                      f"**Mention İhlal Kayıtları:** {len(mention_cache):,}",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🗄️ Cache Durumu",
+                value="⚠️ ExtraFeatures modülü yüklü değil",
                 inline=False
             )
         
