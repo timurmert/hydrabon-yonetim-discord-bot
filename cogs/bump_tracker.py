@@ -141,6 +141,9 @@ class BumpTracker(commands.Cog):
         self.GUILD_ID = 1029088146752815138
         self.turkey_tz = pytz.timezone('Europe/Istanbul')
         self._last_bump_inactivity_notified_for_time = None  # ISO of last bump time we notified for (or 'NONE')
+        self._last_bump_inactivity_notified_level = 0  # Bildirilen son uyarı seviyesi (0=yok, 4=4 saat, 12=12 saat @everyone)
+        self.BUMP_WARN_HOURS = 4  # Bu kadar saat bump atılmazsa uyarı
+        self.BUMP_WARN_EVERYONE_HOURS = 12  # Bu kadar saat bump atılmazsa @everyone ile uyarı
     
     async def cog_load(self):
         self.db = await get_db()
@@ -411,10 +414,25 @@ class BumpTracker(commands.Cog):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
-    @tasks.loop(hours=4)
+    async def _get_bump_warn_channel(self, guild: discord.Guild):
+        """Uyarı kanalını (yk-sohbet) getirir; cache'te yoksa fetch dener."""
+        ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
+        if not ch:
+            try:
+                ch = await self.bot.fetch_channel(self.YK_SOHBET_CHANNEL_ID)
+            except Exception:
+                ch = None
+        return ch
+
+    @tasks.loop(minutes=30)
     async def bump_inactivity_task(self):
-        """Her 4 saatte bir son 4 saatte bump var mı kontrol eder; yoksa yetkili-sohbet'e uyarı gönderir.
-        Aynı durum için tekrarlı spam'ı engellemek adına son bildirilen bump zamanını izler."""
+        """Düzenli aralıklarla son bump'ın üzerinden geçen süreyi kontrol eder.
+        - Son bump'tan bu yana >= BUMP_WARN_HOURS (4 saat) geçmişse yk-sohbet'e uyarı gönderir.
+        - >= BUMP_WARN_EVERYONE_HOURS (12 saat) geçmişse aynı uyarıya @everyone ekleyip herkesi etiketler.
+        Uyarı SADECE süre gerçekten aşıldığında gönderilir; süre dolmadıysa (ör. bump az önce atıldıysa)
+        hiçbir şey yapılmaz. Aynı bump için tekrarlı spam'ı engellemek adına son bildirilen
+        (bump zamanı, seviye) ikilisi izlenir; böylece 4 saatlik uyarı bir kez, 12 saatlik @everyone
+        uyarısı da yalnızca bir kez gönderilir."""
         try:
             guild = self.bot.get_guild(self.GUILD_ID)
             if not guild:
@@ -423,44 +441,63 @@ class BumpTracker(commands.Cog):
             latest = (data or {}).get('latest_bump') if data else None
             latest_time_str = latest.get('time') if latest else None
             now_utc = datetime.datetime.now(datetime.timezone.utc)
-            # Eğer hiç bump yoksa da bir kere uyarı at ve tekrar etme
-            if latest_time_str:
-                try:
-                    latest_dt = datetime.datetime.fromisoformat(str(latest_time_str).replace('Z', '+00:00'))
-                    if latest_dt.tzinfo is None:
-                        latest_dt = latest_dt.replace(tzinfo=datetime.timezone.utc)
-                except Exception:
-                    return
-                delta_hours = (now_utc - latest_dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600.0
-                if delta_hours >= 4:
-                    key = latest_time_str
-                    if self._last_bump_inactivity_notified_for_time != key:
-                        ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
-                        if not ch:
-                            try:
-                                ch = await self.bot.fetch_channel(self.YK_SOHBET_CHANNEL_ID)
-                            except Exception:
-                                ch = None
-                        if ch:
-                            try:
-                                await ch.send("⚠️ Son 4 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin.")
-                                self._last_bump_inactivity_notified_for_time = key
-                            except Exception:
-                                pass
-            else:
+
+            # Hiç bump geçmişi yoksa: bir kez bilgilendir, tekrar etme
+            if not latest_time_str:
                 if self._last_bump_inactivity_notified_for_time != 'NONE':
-                    ch = guild.get_channel(self.YK_SOHBET_CHANNEL_ID)
-                    if not ch:
-                        try:
-                            ch = await self.bot.fetch_channel(self.YK_SOHBET_CHANNEL_ID)
-                        except Exception:
-                            ch = None
+                    ch = await self._get_bump_warn_channel(guild)
                     if ch:
                         try:
                             await ch.send("⚠️ Henüz hiç bump geçmişi bulunamadı. Lütfen <#1366027014154223719> kanalında bump başlatın.")
                             self._last_bump_inactivity_notified_for_time = 'NONE'
+                            self._last_bump_inactivity_notified_level = 0
                         except Exception:
                             pass
+                return
+
+            # Son bump zamanını parse et
+            try:
+                latest_dt = datetime.datetime.fromisoformat(str(latest_time_str).replace('Z', '+00:00'))
+                if latest_dt.tzinfo is None:
+                    latest_dt = latest_dt.replace(tzinfo=datetime.timezone.utc)
+            except Exception:
+                return
+
+            delta_hours = (now_utc - latest_dt.astimezone(datetime.timezone.utc)).total_seconds() / 3600.0
+
+            # Eşik seviyesini belirle
+            if delta_hours >= self.BUMP_WARN_EVERYONE_HOURS:
+                level = self.BUMP_WARN_EVERYONE_HOURS  # 12
+            elif delta_hours >= self.BUMP_WARN_HOURS:
+                level = self.BUMP_WARN_HOURS  # 4
+            else:
+                # Son bump yeterince yeni; uyarıya gerek yok
+                return
+
+            # Bu bump için bu seviye (veya daha üstü) zaten bildirildiyse tekrar gönderme
+            key = latest_time_str
+            if (self._last_bump_inactivity_notified_for_time == key and
+                    self._last_bump_inactivity_notified_level >= level):
+                return
+
+            ch = await self._get_bump_warn_channel(guild)
+            if not ch:
+                return
+
+            base_msg = "⚠️ Son 4 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin."
+            if level >= self.BUMP_WARN_EVERYONE_HOURS:
+                content = f"{base_msg} @everyone"
+                allowed = discord.AllowedMentions(everyone=True)
+            else:
+                content = base_msg
+                allowed = discord.AllowedMentions(everyone=False)
+
+            try:
+                await ch.send(content, allowed_mentions=allowed)
+                self._last_bump_inactivity_notified_for_time = key
+                self._last_bump_inactivity_notified_level = level
+            except Exception:
+                pass
         except Exception:
             pass
 
