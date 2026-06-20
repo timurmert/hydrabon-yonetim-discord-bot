@@ -6526,10 +6526,13 @@ class SistemDurumuView(discord.ui.View):
         disk_total = disk.total / (1024**3)  # GB
         disk_percent = (disk.used / disk.total) * 100
         
+        memory_free = memory.available / (1024**3)  # GB
+
         embed.add_field(
-            name="🖥️ Sistem Kaynakları",
+            name="🖥️ Sistem Kaynakları (Hosting Geneli)",
             value=f"**CPU Kullanımı:** {cpu_percent}% ({cpu_count} çekirdek)\n"
-                  f"**RAM Kullanımı:** {memory_used:.1f}GB / {memory_total:.1f}GB ({memory_percent}%)\n"
+                  f"**Genel RAM (Hosting):** {memory_used:.1f}GB / {memory_total:.1f}GB ({memory_percent}%)\n"
+                  f"**Boş RAM:** {memory_free:.1f}GB\n"
                   f"**Disk Kullanımı:** {disk_used:.1f}GB / {disk_total:.1f}GB ({disk_percent:.1f}%)",
             inline=False
         )
@@ -6541,13 +6544,15 @@ class SistemDurumuView(discord.ui.View):
         
         # Bot process bilgileri
         process = psutil.Process()
-        bot_memory = process.memory_info().rss / (1024**2)  # MB
+        bot_memory_rss = process.memory_info().rss
+        bot_memory = bot_memory_rss / (1024**2)  # MB
+        bot_memory_pct = (bot_memory_rss / memory.total * 100) if memory.total else 0.0
         bot_cpu = process.cpu_percent()
-        
+
         embed.add_field(
             name="🤖 Bot Durumu",
             value=f"**Uptime:** {uptime_str}\n"
-                  f"**Bot RAM:** {bot_memory:.1f} MB\n"
+                  f"**Bot RAM:** {bot_memory:.1f} MB (toplamın %{bot_memory_pct:.1f}'i)\n"
                   f"**Bot CPU:** {bot_cpu}%\n"
                   f"**Python:** {platform.python_version()}\n"
                   f"**discord.py:** {discord.__version__}",
