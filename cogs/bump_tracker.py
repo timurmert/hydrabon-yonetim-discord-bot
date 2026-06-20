@@ -246,9 +246,9 @@ class BumpTracker(commands.Cog):
             except Exception:
                 return
 
-        # Yetkili kontrolü
-        if not self.is_staff(member):
-            return
+        # Not: Bump kaydı role bağlı DEĞİLDİR. Bump'ı kim atarsa atsın (üye veya yetkili)
+        # kayıt oluşturulur. Aksi halde üye rolündeki biri bump attığında kayıt düşmez ve
+        # bump_inactivity_task "4 saattir bump yok" uyarısını yanlışlıkla tetikler.
 
         # Bump kaydını oluştur
         try:
