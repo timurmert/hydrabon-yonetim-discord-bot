@@ -484,12 +484,13 @@ class BumpTracker(commands.Cog):
             if not ch:
                 return
 
-            base_msg = "⚠️ Son 4 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin."
             if level >= self.BUMP_WARN_EVERYONE_HOURS:
-                content = f"{base_msg} @everyone"
+                # 12 saat ve üzeri: 12 saate özel metin + @everyone
+                content = "🚨 Son 12 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin. @everyone"
                 allowed = discord.AllowedMentions(everyone=True)
             else:
-                content = base_msg
+                # İlk uyarı (4 saat): etiketsiz
+                content = "⚠️ Son 4 saat içerisinde herhangi bir bump yapılmadı, lütfen sistemi kontrol edin."
                 allowed = discord.AllowedMentions(everyone=False)
 
             try:
