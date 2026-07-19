@@ -718,18 +718,26 @@ class Database:
 
             return applications
 
-    async def add_bump_log(self, user_id, username, guild_id):
+    async def add_bump_log(self, user_id, username, guild_id, bump_time=None):
         """Yeni bump kaydını veritabanına ekler ve özet tablosunu günceller
-        
+
         Args:
             user_id (int): Kullanıcının Discord ID'si
             username (str): Kullanıcının adı
             guild_id (int): Sunucu ID'si
-            
+            bump_time (datetime, optional): Bump'ın gerçekleştiği an. Belirtilmezse şu anki
+                UTC zamanı kullanılır. Geçmişe dönük (backfill) kayıtlarda gerçek mesaj
+                zamanının verilebilmesi için eklenmiştir.
+
         Returns:
             tuple: (bump_id, total_bumps)
         """
-        current_time = datetime.now(timezone.utc).isoformat()
+        if bump_time is not None:
+            if bump_time.tzinfo is None:
+                bump_time = bump_time.replace(tzinfo=timezone.utc)
+            current_time = bump_time.astimezone(timezone.utc).isoformat()
+        else:
+            current_time = datetime.now(timezone.utc).isoformat()
         
         async with self.connection.cursor() as cursor:
             # Bump logu ekle

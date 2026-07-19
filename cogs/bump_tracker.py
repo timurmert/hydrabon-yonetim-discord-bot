@@ -118,6 +118,30 @@ class BumpStatsResultView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
+# DISBOARD'ın "bump başarılı" yanıtlarında güncel/geçmişte görülen ifadeler.
+# DISBOARD zaman zaman metnini/dilini değiştirebildiği için tek bir ifadeye
+# güvenmek yerine geniş bir liste tutulur (bkz. _is_bump_success_text).
+BUMP_SUCCESS_MARKERS = [
+    "öne çıkarma başarılı",
+    "bump done",
+    "bump edildi",
+    "başarıyla bump",
+    "check it out on disboard",
+    "check it out on https://disboard",
+]
+
+# DISBOARD'ın bekleme süresi dolmadan atılan bump denemelerine verdiği yanıtlarda
+# geçen ifadeler. Bu ifadeler görülürse kesinlikle başarısız bir denemedir.
+BUMP_FAILURE_MARKERS = [
+    "bir sonraki bump",
+    "lütfen bekleyin",
+    "please wait",
+    "you can bump",
+    "tekrar dene",
+    "cooldown",
+]
+
+
 class BumpTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -193,15 +217,145 @@ class BumpTracker(commands.Cog):
                 return datetime.datetime.fromisoformat(row[0])
             return None
     
-    async def add_bump(self, user_id, username, guild_id):
+    async def add_bump(self, user_id, username, guild_id, bump_time=None):
         """Yeni bump kaydı ekler ve toplam sayıyı döndürür"""
         try:
-            bump_id, total_bumps = await self.db.add_bump_log(user_id, username, guild_id)
+            bump_id, total_bumps = await self.db.add_bump_log(user_id, username, guild_id, bump_time=bump_time)
             return total_bumps
         except Exception as e:
             print(f"Veritabanı hatası (add_bump): {e}")
             raise
-    
+
+    def _collect_message_text(self, message: discord.Message) -> str:
+        """Mesaj içeriği + embed alanlarındaki (title, description, footer, author, fields)
+        tüm metni tek bir küçük harfli string'de toplar. DISBOARD, bump yanıtının metnini
+        zaman zaman farklı bir embed alanına koyabildiği için sadece description'a bakmak
+        yetersiz kalabiliyor."""
+        parts = [message.content or ""]
+        for embed in message.embeds:
+            parts.append(embed.title or "")
+            parts.append(embed.description or "")
+            if embed.footer:
+                parts.append(embed.footer.text or "")
+            if embed.author:
+                parts.append(embed.author.name or "")
+            for field in embed.fields:
+                parts.append(field.name or "")
+                parts.append(field.value or "")
+        return "\n".join(parts).lower()
+
+    def _classify_bump_message(self, message: discord.Message) -> Optional[bool]:
+        """DISBOARD mesajını sınıflandırır.
+        True  -> başarılı bump
+        False -> bilinen bir başarısızlık/bekleme mesajı
+        None  -> tanınamadı (ne başarı ne de bilinen bir hata deseniyle eşleşti)
+        """
+        text = self._collect_message_text(message)
+        if any(marker in text for marker in BUMP_FAILURE_MARKERS):
+            return False
+        if any(marker in text for marker in BUMP_SUCCESS_MARKERS):
+            return True
+        return None
+
+    def _extract_bump_user(self, message: discord.Message):
+        """DISBOARD mesajını tetikleyen /bump komutunu kullanan kişiyi interaction
+        metadata'sından döndürür; bulunamazsa None döner."""
+        if hasattr(message, 'interaction_metadata') and message.interaction_metadata:
+            return message.interaction_metadata.user
+        if hasattr(message, 'interaction') and message.interaction:
+            return message.interaction.user
+        return None
+
+    async def _register_bump(self, guild: discord.Guild, member: discord.Member, bump_time,
+                              announce_channel: Optional[discord.abc.Messageable] = None):
+        """Bump kaydını veritabanına işler; announce_channel verilirse bilgilendirme
+        embed'i gönderir (geçmişten kurtarılan/backfill edilen bump'larda bildirim
+        göndermemek için None geçilir)."""
+        bump_count = await self.add_bump(member.id, member.display_name, guild.id, bump_time=bump_time)
+
+        if announce_channel is not None:
+            embed = discord.Embed(
+                title="🚀 Bump Sayınız Güncellendi!",
+                description=f"{member.mention} yeni bir bump gerçekleştirdi!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Toplam Bump Sayısı",
+                value=f"**{bump_count}** kez bump yapmış!",
+                inline=False
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
+            await announce_channel.send(embed=embed)
+
+        # Kurucu arka arkaya 2 bump kontrolü ve uyarı
+        try:
+            await self.check_consecutive_founder_bumps_and_notify(guild, member)
+        except Exception:
+            pass
+
+        return bump_count
+
+    async def reconcile_missed_bumps(self, guild: discord.Guild) -> int:
+        """Bot çevrimdışıyken/yeniden başlarken kaçırılmış olabilecek bump'ları bump
+        kanalının mesaj geçmişinden tarayıp veritabanına işler.
+
+        Neden gerekli: on_message dinleyicisi yalnızca bot çalışırken gelen mesajları
+        görebilir. Bot bir bump anında yeniden başlıyorsa (deploy, çökme, bağlantı kopması vb.)
+        o bump Discord'da gerçekleşmiş olsa bile veritabanına hiç işlenmez; bu da
+        bump_inactivity_task'ın gerçekte bump yapılmasına rağmen "X saattir bump yok"
+        uyarısını yanlışlıkla tetiklemesine yol açar. Bu fonksiyon her periyodik kontrolden
+        önce çalışarak veritabanını kanal geçmişiyle senkronize tutar.
+        """
+        channel = guild.get_channel(self.BUMP_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(self.BUMP_CHANNEL_ID)
+            except Exception:
+                return 0
+
+        data = await self.db.get_total_bump_stats(guild.id)
+        latest = (data or {}).get('latest_bump') if data else None
+        latest_time_str = latest.get('time') if latest else None
+
+        after = None
+        if latest_time_str:
+            try:
+                after = datetime.datetime.fromisoformat(str(latest_time_str).replace('Z', '+00:00'))
+                if after.tzinfo is None:
+                    after = after.replace(tzinfo=datetime.timezone.utc)
+            except Exception:
+                after = None
+
+        recovered = 0
+        try:
+            async for message in channel.history(limit=200, after=after, oldest_first=True):
+                if message.author.id != self.DISBOARD_BOT_ID:
+                    continue
+                if self._classify_bump_message(message) is not True:
+                    continue
+
+                bump_user = self._extract_bump_user(message)
+                if bump_user is None:
+                    continue
+
+                member = guild.get_member(bump_user.id)
+                if member is None:
+                    try:
+                        member = await guild.fetch_member(bump_user.id)
+                    except Exception:
+                        continue
+
+                await self._register_bump(guild, member, message.created_at, announce_channel=None)
+                recovered += 1
+        except Exception as e:
+            print(f"[BumpTracker] Geçmiş bump taraması hatası: {e}")
+
+        if recovered:
+            print(f"[BumpTracker] {recovered} adet kaçırılmış bump geçmişten kurtarıldı (guild={guild.id}).")
+
+        return recovered
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """DISBOARD botunun başarılı bump yanıtını algılayıp otomatik bump kaydı oluşturur."""
@@ -211,25 +365,17 @@ class BumpTracker(commands.Cog):
         if message.channel.id != self.BUMP_CHANNEL_ID:
             return
 
-        # Başarılı bump mesajını kontrol et
-        is_successful_bump = False
-        if message.embeds:
-            for embed in message.embeds:
-                desc = (embed.description or "").lower()
-                # Türkçe: "Öne çıkarma başarılı", İngilizce: "Bump done"
-                if "öne çıkarma başarılı" in desc or "bump done" in desc:
-                    is_successful_bump = True
-                    break
-
-        if not is_successful_bump:
+        classification = self._classify_bump_message(message)
+        if classification is not True:
+            if classification is None:
+                # Ne başarı ne de bilinen bir hata deseniyle eşleşti: ileride teşhis
+                # edilebilmesi için logla (DISBOARD metnini değiştirdiyse burada görülür).
+                print(f"[BumpTracker] DISBOARD mesajı tanınamadı, bump olarak sayılmadı. "
+                      f"content={message.content!r} embeds={[e.to_dict() for e in message.embeds]}")
             return
 
         # Bump yapan kullanıcıyı DISBOARD'un interaction metadata'sından al
-        bump_user = None
-        if hasattr(message, 'interaction_metadata') and message.interaction_metadata:
-            bump_user = message.interaction_metadata.user
-        elif hasattr(message, 'interaction') and message.interaction:
-            bump_user = message.interaction.user
+        bump_user = self._extract_bump_user(message)
 
         if bump_user is None:
             print(f"[BumpTracker] DISBOARD bump algılandı ancak kullanıcı tespit edilemedi. "
@@ -255,31 +401,7 @@ class BumpTracker(commands.Cog):
 
         # Bump kaydını oluştur
         try:
-            bump_count = await self.add_bump(member.id, member.display_name, guild.id)
-
-            embed = discord.Embed(
-                title="🚀 Bump Sayınız Güncellendi!",
-                description=f"{member.mention} yeni bir bump gerçekleştirdi!",
-                color=discord.Color.green()
-            )
-
-            embed.add_field(
-                name="Toplam Bump Sayısı",
-                value=f"**{bump_count}** kez bump yapmış!",
-                inline=False
-            )
-
-            embed.set_thumbnail(url=member.display_avatar.url)
-            embed.set_footer(text=f"{guild.name} • {datetime.datetime.now(self.turkey_tz).strftime('%d.%m.%Y %H:%M')}")
-
-            await message.channel.send(embed=embed)
-
-            # Kurucu arka arkaya 2 bump kontrolü ve uyarı
-            try:
-                await self.check_consecutive_founder_bumps_and_notify(guild, member)
-            except Exception:
-                pass
-
+            await self._register_bump(guild, member, message.created_at, announce_channel=message.channel)
         except Exception as e:
             print(f"Otomatik bump kaydetme hatası: {e}")
 
@@ -437,6 +559,16 @@ class BumpTracker(commands.Cog):
             guild = self.bot.get_guild(self.GUILD_ID)
             if not guild:
                 return
+
+            # Uyarı kararı vermeden önce, bot çevrimdışıyken kaçırılmış olabilecek
+            # bump'ları kanal geçmişinden tarayıp veritabanıyla senkronize et. Bu sayede
+            # canlı dinleyicinin (on_message) kaçırdığı bir bump yüzünden gerçekte bump
+            # yapılmasına rağmen yanlışlıkla "bump yapılmadı" uyarısı gönderilmez.
+            try:
+                await self.reconcile_missed_bumps(guild)
+            except Exception as e:
+                print(f"[BumpTracker] reconcile_missed_bumps hatası: {e}")
+
             data = await self.db.get_total_bump_stats(guild.id)
             latest = (data or {}).get('latest_bump') if data else None
             latest_time_str = latest.get('time') if latest else None
